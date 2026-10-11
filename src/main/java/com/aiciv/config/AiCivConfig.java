@@ -1,0 +1,140 @@
+package com.aiciv.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** aiciv.json. Public fields so Gson can fill them; field initializers are the defaults. */
+public final class AiCivConfig {
+    public static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+
+    public Map<String, ProviderConfig> providers = new LinkedHashMap<>();
+    public Map<String, ModelConfig> models = new LinkedHashMap<>();
+    public String defaultModel = "gemini-flash";
+    public int idleWakeSeconds = 60;
+    public int mentionCooldownSeconds = 15;
+    public int hearingRange = 64;
+    public int maxNotes = 20;
+    public int eventWindow = 10;
+    public int maxActionsPerDecision = 3;
+
+    public static final class ProviderConfig {
+        /** "openai" for any OpenAI-compatible HTTP API, "scripted" for canned replies. */
+        public String type = "openai";
+        public String baseUrl = "";
+        /** Name of the key in keys.json, or null when the provider needs none. */
+        public String key;
+        /** Requests per minute, 0 for unlimited. */
+        public int rpm;
+        /** Requests per day, 0 for unlimited. */
+        public int rpd;
+        public String resetZone = "UTC";
+        public int maxInFlight = 2;
+        /** Scripted providers only: a JSON file next to aiciv.json. */
+        public String script;
+
+        public ProviderConfig() {}
+
+        ProviderConfig(String baseUrl, String key, int rpm, int rpd, String resetZone, int maxInFlight) {
+            this.baseUrl = baseUrl;
+            this.key = key;
+            this.rpm = rpm;
+            this.rpd = rpd;
+            this.resetZone = resetZone;
+            this.maxInFlight = maxInFlight;
+        }
+    }
+
+    public static final class ModelConfig {
+        public String provider;
+        public String model;
+        public String fallback;
+        public int maxTokens = 1000;
+        /** Extra request fields merged into the body, for example {"reasoning_effort": "none"}. */
+        public JsonObject extra = new JsonObject();
+
+        public ModelConfig() {}
+
+        ModelConfig(String provider, String model, String fallback) {
+            this.provider = provider;
+            this.model = model;
+            this.fallback = fallback;
+        }
+    }
+
+    /** Illustrative limits; the user replaces them with their real tier limits. */
+    public static AiCivConfig defaults() {
+        AiCivConfig c = new AiCivConfig();
+        c.providers.put("gemini", new ProviderConfig("https://generativelanguage.googleapis.com/v1beta/openai", "gemini", 10, 250, "America/Los_Angeles", 2));
+        c.providers.put("groq", new ProviderConfig("https://api.groq.com/openai/v1", "groq", 30, 1000, "UTC", 2));
+        c.providers.put("opencode", new ProviderConfig("https://opencode.ai/zen/v1", "opencode", 10, 500, "UTC", 2));
+        c.providers.put("ollama", new ProviderConfig("http://localhost:11434/v1", null, 0, 0, "UTC", 1));
+        c.models.put("gemini-flash", new ModelConfig("gemini", "gemini-2.5-flash", "groq-llama"));
+        c.models.put("groq-llama", new ModelConfig("groq", "llama-3.3-70b-versatile", null));
+        c.models.put("opencode-free", new ModelConfig("opencode", "big-pickle", null));
+        c.models.put("ollama-local", new ModelConfig("ollama", "llama3.2", null));
+        return c;
+    }
+
+    /** Reads the file, or writes and returns the defaults when it does not exist. */
+    public static AiCivConfig loadOrCreate(Path file) throws IOException {
+        if (Files.notExists(file)) {
+            AiCivConfig c = defaults();
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, GSON.toJson(c));
+            return c;
+        }
+        AiCivConfig c = GSON.fromJson(Files.readString(file), AiCivConfig.class);
+        if (c == null) throw new IOException(file + " is empty");
+        if (c.providers == null) c.providers = new LinkedHashMap<>();
+        if (c.models == null) c.models = new LinkedHashMap<>();
+        for (ModelConfig m : c.models.values()) {
+            if (m.extra == null) m.extra = new JsonObject();
+        }
+        return c;
+    }
+
+    /** Human-readable problems; empty when the config is usable. */
+    public List<String> validate() {
+        List<String> problems = new ArrayList<>();
+        for (Map.Entry<String, ModelConfig> e : models.entrySet()) {
+            ModelConfig m = e.getValue();
+            if (m.provider == null || !providers.containsKey(m.provider)) {
+                problems.add("model '" + e.getKey() + "' uses unknown provider '" + m.provider + "'");
+            }
+            if (m.model == null || m.model.isBlank()) {
+                problems.add("model '" + e.getKey() + "' has no model id");
+            }
+            if (m.fallback != null && !models.containsKey(m.fallback)) {
+                problems.add("model '" + e.getKey() + "' falls back to unknown model '" + m.fallback + "'");
+            }
+        }
+        for (Map.Entry<String, ProviderConfig> e : providers.entrySet()) {
+            ProviderConfig p = e.getValue();
+            if ("scripted".equals(p.type)) {
+                if (p.script == null || p.script.isBlank()) problems.add("scripted provider '" + e.getKey() + "' has no script file");
+            } else if (!"openai".equals(p.type)) {
+                problems.add("provider '" + e.getKey() + "' has unknown type '" + p.type + "'");
+            } else if (p.baseUrl == null || p.baseUrl.isBlank()) {
+                problems.add("provider '" + e.getKey() + "' has no baseUrl");
+            }
+            try {
+                ZoneId.of(p.resetZone);
+            } catch (RuntimeException ex) {
+                problems.add("provider '" + e.getKey() + "' has invalid resetZone '" + p.resetZone + "'");
+            }
+        }
+        if (!models.containsKey(defaultModel)) {
+            problems.add("defaultModel '" + defaultModel + "' is not a configured model");
+        }
+        return problems;
+    }
+}
