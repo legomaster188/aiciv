@@ -1,10 +1,11 @@
 package com.aiciv.llm;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,9 +47,8 @@ public final class ReplyParser {
         if (c.isJsonArray()) {
             StringBuilder sb = new StringBuilder();
             for (JsonElement part : c.getAsJsonArray()) {
-                if (part.isJsonObject() && part.getAsJsonObject().has("text")) {
-                    sb.append(part.getAsJsonObject().get("text").getAsString());
-                }
+                JsonElement text = part.isJsonObject() ? part.getAsJsonObject().get("text") : null;
+                if (text != null && text.isJsonPrimitive()) sb.append(text.getAsString());
             }
             return sb.toString();
         }
@@ -81,28 +81,33 @@ public final class ReplyParser {
         return new ToolCall(name, new JsonObject(), "arguments for " + name + " were not a valid JSON object");
     }
 
-    /** Accepts [{"action": "say", "args": {...}}, ...] or one such object, optionally in a code fence. */
+    /**
+     * Accepts [{"action": "say", "args": {...}}, ...] or one such object, optionally in a code fence.
+     * Every '[' or '{' is tried in order, from the start of the text, so brackets in prose or in
+     * argument values cannot hide the JSON that follows them.
+     */
     static List<ToolCall> jsonFallback(String content) {
         String s = stripFence(content.trim());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c != '[' && c != '{') continue;
+            List<ToolCall> calls = actionsAt(s, i);
+            if (!calls.isEmpty()) return calls;
+        }
+        return List.of();
+    }
+
+    /** Reads the one JSON value starting at start and ignores any text after it. Empty unless every item is an action. */
+    private static List<ToolCall> actionsAt(String s, int start) {
         JsonElement root;
         try {
-            int open = s.indexOf('[');
-            int close = s.lastIndexOf(']');
-            if (open >= 0 && close > open) {
-                root = JsonParser.parseString(s.substring(open, close + 1));
-            } else {
-                int o = s.indexOf('{');
-                int c = s.lastIndexOf('}');
-                if (o < 0 || c <= o) return List.of();
-                root = JsonParser.parseString(s.substring(o, c + 1));
-            }
+            root = JsonParser.parseReader(new JsonReader(new StringReader(s.substring(start))));
         } catch (JsonParseException e) {
             return List.of();
         }
         List<JsonElement> items = new ArrayList<>();
         if (root.isJsonArray()) {
-            JsonArray arr = root.getAsJsonArray();
-            arr.forEach(items::add);
+            root.getAsJsonArray().forEach(items::add);
         } else {
             items.add(root);
         }
