@@ -36,7 +36,7 @@ public final class ProviderHealth {
     public synchronized void onRateLimited(Duration retryAfter) {
         consecutiveRateLimits++;
         Duration wait = retryAfter != null ? retryAfter : backoff(consecutiveRateLimits);
-        unavailableUntil = clock.instant().plus(wait);
+        extendPause(wait);
         lastProblem = "rate limited for " + wait.toSeconds() + "s";
     }
 
@@ -44,7 +44,7 @@ public final class ProviderHealth {
         consecutiveFailures++;
         lastProblem = reason;
         if (consecutiveFailures >= FAILURES_TO_DOWN) {
-            unavailableUntil = clock.instant().plus(DOWN_FOR);
+            extendPause(DOWN_FOR);
             consecutiveFailures = 0;
         }
     }
@@ -66,6 +66,12 @@ public final class ProviderHealth {
             return "paused until " + until + " (" + lastProblem + ")";
         }
         return lastProblem.isEmpty() ? "ok" : "ok (last problem: " + lastProblem + ")";
+    }
+
+    /** Pauses requests for at least {@code wait}; a shorter pause never cuts a longer one short. */
+    private void extendPause(Duration wait) {
+        Instant until = clock.instant().plus(wait);
+        if (until.isAfter(unavailableUntil)) unavailableUntil = until;
     }
 
     /** 5 s, 10 s, 20 s, ... capped at 120 s, for the n-th rate limit in a row. */

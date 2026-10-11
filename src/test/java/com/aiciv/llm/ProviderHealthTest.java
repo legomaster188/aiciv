@@ -64,6 +64,30 @@ class ProviderHealthTest {
     }
 
     @Test
+    void aShortRateLimitDoesNotShortenAFailurePause() {
+        h.onFailure("HTTP 500");
+        h.onFailure("HTTP 500");
+        h.onFailure("HTTP 500");
+        h.onRateLimited(Duration.ofSeconds(5));
+        clock.advance(Duration.ofSeconds(10));
+        assertFalse(h.available());
+        clock.advance(Duration.ofMinutes(5).minusSeconds(10));
+        assertTrue(h.available());
+    }
+
+    @Test
+    void lateFailuresDoNotShortenALongRetryAfter() {
+        h.onRateLimited(Duration.ofMinutes(10));
+        h.onFailure("HTTP 500");
+        h.onFailure("HTTP 500");
+        h.onFailure("HTTP 500");
+        clock.advance(Duration.ofMinutes(5));
+        assertFalse(h.available());
+        clock.advance(Duration.ofMinutes(5));
+        assertTrue(h.available());
+    }
+
+    @Test
     void authFailureDisablesForGood() {
         h.onAuthFailure("HTTP 401 (key rejected)");
         clock.advance(Duration.ofDays(1));
