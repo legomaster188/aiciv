@@ -4,6 +4,7 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionStatus;
 import com.aiciv.actions.AttackAction;
 import com.aiciv.actions.BotContext;
+import com.aiciv.actions.EatAction;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.bot.Bot;
 import com.aiciv.perception.GameTime;
@@ -34,6 +35,7 @@ public final class ReflexController {
     static final int NOTE_REPEAT_TICKS = 10 * 20;
 
     private Reflex active = Reflex.NONE;
+    private boolean brainEating;
     private Action behaviour;
     private LivingEntity cause;
     private int startedAt;
@@ -50,6 +52,7 @@ public final class ReflexController {
         AiPlayer p = b.player;
         if (p.isDeadOrDying()) return;
         BotContext ctx = b.context;
+        brainEating = b.executor.upNext(EatAction.class);
         LivingEntity attacker = recentAttacker(p);
         Reflex wanted = decide(p, attacker);
 
@@ -93,7 +96,8 @@ public final class ReflexController {
         boolean hazard = HazardEscape.inHazardBlock(p) || (p.isOnFire() && !p.isInWater() && HazardEscape.waterNearby(p));
         // Air only matters while the head is under water; it refills in a few ticks once the bot surfaces.
         int air = p.isUnderWater() ? p.getAirSupply() : p.getMaxAirSupply();
-        boolean busyEating = p.isUsingItem() && active != Reflex.EAT;
+        // The brain's own eat action counts from before its first bite, or both would eat a portion each.
+        boolean busyEating = (p.isUsingItem() && active != Reflex.EAT) || brainEating;
         return new Snapshot(hazard, air, p.getMaxAirSupply(), p.getHealth(), p.getFoodData().getFoodLevel(),
                 ReflexEat.hasFood(p), attacker != null, armed(p), busyEating);
     }

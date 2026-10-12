@@ -49,6 +49,11 @@ public final class ActionExecutor {
         return current != null || !queue.isEmpty();
     }
 
+    /** Whether the action running now (or, between actions, the next one) is of this type. */
+    public boolean upNext(Class<? extends Action> type) {
+        return type.isInstance(current != null ? current : queue.peek());
+    }
+
     public String currentDescription() {
         return current == null ? "none" : current.describe();
     }
