@@ -1,5 +1,10 @@
 package com.aiciv.actions;
 
+import static com.aiciv.modules.Tools.fn;
+import static com.aiciv.modules.Tools.prop;
+import static com.aiciv.modules.Tools.props;
+
+import com.aiciv.modules.ToolModules;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -46,46 +51,17 @@ public final class ToolCatalog {
         tools.add(fn("attack", "Fight the nearest mob of a type or a player until it is dead, using your best weapon.",
                 props("target", "string", "A mob type such as zombie, or a player's name."), "target"));
         tools.add(fn("stop", "Stop what you are doing and stand still.", null));
+        for (JsonObject t : ToolModules.tools()) tools.add(t);
         return tools;
     }
 
     public static String guide() {
-        return """
-                Actions: say, goTo, goToPlayer, follow, explore, mine, collect, craft, smelt, place, eat, equip, attack, stop. Each one ends as done or failed and you will be told which.
+        StringBuilder guide = new StringBuilder("Actions: ").append(ActionFactory.available()).append("""
+                . Each one ends as done or failed and you will be told which.
                 Do more with less: one turn can chain up to 6 actions, e.g. mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe.
                 If you cannot call functions, reply with only a JSON array instead, for example:
-                [{"action": "say", "args": {"text": "hello"}}, {"action": "goToPlayer", "args": {"name": "Steve"}}]""";
-    }
-
-    private static JsonObject fn(String name, String description, JsonObject properties, String... required) {
-        JsonObject function = new JsonObject();
-        function.addProperty("name", name);
-        function.addProperty("description", description);
-        if (properties != null) {
-            JsonObject params = new JsonObject();
-            params.addProperty("type", "object");
-            params.add("properties", properties);
-            JsonArray req = new JsonArray();
-            for (String r : required) req.add(r);
-            params.add("required", req);
-            function.add("parameters", params);
-        }
-        JsonObject tool = new JsonObject();
-        tool.addProperty("type", "function");
-        tool.add("function", function);
-        return tool;
-    }
-
-    private static JsonObject props(String name, String type, String description) {
-        JsonObject p = new JsonObject();
-        p.add(name, prop(type, description));
-        return p;
-    }
-
-    private static JsonObject prop(String type, String description) {
-        JsonObject p = new JsonObject();
-        p.addProperty("type", type);
-        p.addProperty("description", description);
-        return p;
+                [{"action": "say", "args": {"text": "hello"}}, {"action": "goToPlayer", "args": {"name": "Steve"}}]""");
+        for (String line : ToolModules.guideLines()) guide.append('\n').append(line);
+        return guide.toString();
     }
 }

@@ -6,6 +6,7 @@ import com.aiciv.brain.DecisionLog;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.config.KeyStore;
 import com.aiciv.llm.LlmService;
+import com.aiciv.modules.ToolModules;
 import com.aiciv.panel.PanelServer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -26,6 +27,8 @@ import org.slf4j.LoggerFactory;
 public final class AiCiv implements ModInitializer {
     public static final String MOD_ID = "aiciv";
     public static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
+    /** Five minutes: how often world-bound module state (placed blocks, structures) is saved when dirty. */
+    private static final int AUTOSAVE_TICKS = 6000;
 
     private static volatile BotManager manager;
     private static volatile PanelServer panel;
@@ -42,8 +45,12 @@ public final class AiCiv implements ModInitializer {
             } catch (IOException | RuntimeException e) {
                 LOG.error("AiCiv failed to start; fix the config and run /ai reload", e);
             }
+            ToolModules.serverStarted(s);
         });
-        ServerLifecycleEvents.SERVER_STOPPING.register(s -> stop());
+        ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
+            ToolModules.serverStopping(s);
+            stop();
+        });
         ServerTickEvents.START_SERVER_TICK.register(s -> {
             BotManager m = manager;
             if (m != null) m.tickStart();
@@ -53,6 +60,7 @@ public final class AiCiv implements ModInitializer {
             if (m != null) m.tickEnd();
             PanelServer p = panel;
             if (p != null) p.tick();
+            if (s.getTickCount() % AUTOSAVE_TICKS == 0) ToolModules.autosave(s);
         });
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             BotManager m = manager;

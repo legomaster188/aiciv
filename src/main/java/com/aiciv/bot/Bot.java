@@ -1,6 +1,7 @@
 package com.aiciv.bot;
 
 import com.aiciv.actions.ActionExecutor;
+import com.aiciv.actions.Attachments;
 import com.aiciv.actions.BotContext;
 import com.aiciv.brain.BotBrain;
 import com.aiciv.nav.LevelNavigator;
@@ -18,6 +19,8 @@ public final class Bot {
     public LevelNavigator navigator;
     public BlockBreaker breaker;
     public final KnownBlocks knownBlocks = new KnownBlocks(128);
+    /** Module memory (chests, villagers...); survives respawn like {@link #knownBlocks}. */
+    public final Attachments attachments = new Attachments();
     public final ReflexController reflexes = new ReflexController();
     public BotContext context;
     /** Counts deaths, so a reply asked for in an earlier life is dropped. */

@@ -1,9 +1,12 @@
 package com.aiciv.brain;
 
 import com.aiciv.llm.ToolCall;
+import com.aiciv.modules.ToolModule;
+import com.aiciv.modules.ToolModules;
 import com.aiciv.perception.SnapshotData;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,6 +18,8 @@ import java.util.regex.Pattern;
 public final class OptionMenu {
     public static final int MAX_OPTIONS = 40;
     public static final Pattern ID = Pattern.compile("[a-z0-9_]{1,40}");
+    /** Core situational options kept before the modules' options, so modules always get room. */
+    public static final int CORE_CAP = 20;
 
     private static final Set<String> FOODS = Set.of("bread", "apple", "golden_apple", "carrot", "baked_potato", "potato",
             "cooked_beef", "cooked_porkchop", "cooked_chicken", "cooked_mutton", "cooked_rabbit", "cooked_cod",
@@ -34,6 +39,10 @@ public final class OptionMenu {
 
     /** At most {@value #MAX_OPTIONS} options with unique ids; always includes {@code wait} and four {@code explore_*}. */
     public static List<MenuOption> build(SnapshotData snap, MenuContext ctx) {
+        return build(snap, ctx, ToolModules.ALL);
+    }
+
+    static List<MenuOption> build(SnapshotData snap, MenuContext ctx, List<ToolModule> modules) {
         Map<String, MenuOption> fixed = new LinkedHashMap<>();
         for (String[] d : COMPASS) {
             add(fixed, "explore_" + d[0], "walk 64 blocks " + d[2] + " to see what is there",
@@ -75,6 +84,13 @@ public final class OptionMenu {
         }
 
         List<MenuOption> out = new ArrayList<>(options.values());
+        while (out.size() > CORE_CAP) out.remove(out.size() - 1);
+        Set<String> taken = new HashSet<>(fixed.keySet());
+        out.forEach(o -> taken.add(o.id()));
+        for (MenuOption o : ToolModules.menuOptionsFrom(modules, snap, ctx)) {
+            if (o == null || o.id() == null || !ID.matcher(o.id()).matches() || !taken.add(o.id())) continue;
+            out.add(o);
+        }
         while (out.size() > MAX_OPTIONS - fixed.size()) out.remove(out.size() - 1);
         out.addAll(fixed.values());
         return out;

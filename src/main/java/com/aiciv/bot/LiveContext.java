@@ -1,5 +1,6 @@
 package com.aiciv.bot;
 
+import com.aiciv.actions.Attachments;
 import com.aiciv.actions.BotContext;
 import com.aiciv.actions.PlayerNames;
 import com.aiciv.nav.Navigator;
@@ -55,5 +56,20 @@ final class LiveContext implements BotContext {
     @Override
     public BlockBreaker breaker() {
         return breaker;
+    }
+
+    @Override
+    public void event(String text) {
+        bot.brain.note(manager.stamp(), text);
+    }
+
+    @Override
+    public void tell(String botName, String text) {
+        manager.bot(PlayerNames.clean(botName)).ifPresent(o -> o.brain.note(manager.stamp(), text));
+    }
+
+    @Override
+    public Attachments attachments() {
+        return bot.attachments;
     }
 }

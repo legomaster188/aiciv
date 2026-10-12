@@ -72,7 +72,7 @@ class ActionFactoryTest {
     @Test
     void catalogNamesMatchTheFactory() {
         var tools = ToolCatalog.tools();
-        assertEquals(14, tools.size());
+        assertEquals(14 + com.aiciv.modules.ToolModules.tools().size(), tools.size());
         Set<String> catalog = new HashSet<>();
         for (var t : tools) {
             String name = t.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
@@ -81,12 +81,12 @@ class ActionFactoryTest {
             assertFalse(t.getAsJsonObject().getAsJsonObject("function").get("description").getAsString().isBlank(), name);
         }
         assertEquals(ActionFactory.knownKeys(), catalog);
-        for (String name : ActionFactory.AVAILABLE.split(", ")) assertTrue(catalog.contains(key(name)), name);
-        assertEquals(14, ActionFactory.AVAILABLE.split(", ").length);
+        for (String name : ActionFactory.available().split(", ")) assertTrue(catalog.contains(key(name)), name);
+        assertEquals(tools.size(), ActionFactory.available().split(", ").length);
     }
 
     private static String key(String name) {
-        return name.toLowerCase(java.util.Locale.ROOT).replace("_", "");
+        return name.toLowerCase(java.util.Locale.ROOT).replace("_", "").replace("-", "");
     }
 
     @Test
@@ -105,6 +105,12 @@ class ActionFactoryTest {
     @Test
     void guideExplainsChaining() {
         assertTrue(ToolCatalog.guide().contains("chain up to 6 actions"));
+    }
+
+    @Test
+    void guideListsEveryAvailableAction() {
+        assertTrue(ToolCatalog.guide().startsWith("Actions: " + ActionFactory.available() + ". Each one ends as done or failed"));
+        for (String line : com.aiciv.modules.ToolModules.guideLines()) assertTrue(ToolCatalog.guide().contains(line), line);
     }
 
     @Test

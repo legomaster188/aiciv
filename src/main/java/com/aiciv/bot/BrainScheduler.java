@@ -107,7 +107,8 @@ final class BrainScheduler {
     }
 
     private boolean think(Bot b, ThinkQueue.Ticket ticket, long now) {
-        SnapshotData data = Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks);
+        SnapshotData data = Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks,
+                b.attachments);
         String snapshot = SnapshotFormatter.format(data, SnapshotFormatter.MAX_CHARS);
         if (m.llm().menuMode(b.brain.modelKey())) return thinkMenu(b, ticket, now, data, snapshot);
         String system = PromptBuilder.system(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b),

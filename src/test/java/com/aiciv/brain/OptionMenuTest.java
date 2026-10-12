@@ -105,7 +105,8 @@ class OptionMenuTest {
         mobs.add("zombie");
         mobs.add("zombie");
         List<MenuOption> options = OptionMenu.build(snap("none"), ctx(Map.of("bread", 1), craftable, true, mobs, players, mineable));
-        assertEquals(40, options.size());
+        assertTrue(options.size() <= 40, "size " + options.size());
+        assertEquals(OptionMenu.CORE_CAP + 7, options.size(), "core options are capped, then come the seven fixed ones");
         Set<String> seen = new HashSet<>();
         for (MenuOption o : options) {
             assertTrue(OptionMenu.ID.matcher(o.id()).matches(), o.id());
@@ -135,5 +136,34 @@ class OptionMenuTest {
             }
         }
         assertTrue(names.containsAll(Set.of("mine", "craft", "smelt", "eat", "equip", "attack", "explore", "goToPlayer", "follow", "say")), names.toString());
+    }
+
+    @Test
+    void moduleOptionsGetRoomBesideManyCoreOptions() {
+        List<String> players = new ArrayList<>();
+        for (int i = 0; i < 30; i++) players.add("Player" + i);
+        List<MenuOption> moduleOptions = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            moduleOptions.add(new MenuOption("module_option_" + i, "module option " + i,
+                    List.of(com.aiciv.llm.ToolCall.of("stop", new com.google.gson.JsonObject()))));
+        }
+        moduleOptions.add(new MenuOption("wait", "a duplicate of a fixed option", List.of()));
+        moduleOptions.add(new MenuOption("Bad Id!", "an invalid id", List.of()));
+        com.aiciv.modules.ToolModule module = new com.aiciv.modules.ToolModule() {
+            @Override public String name() { return "test"; }
+            @Override public List<com.google.gson.JsonObject> tools() { return List.of(); }
+            @Override public com.aiciv.actions.ActionFactory.Result create(String key, com.google.gson.JsonObject args) { return null; }
+            @Override public List<MenuOption> menuOptions(SnapshotData snap, MenuContext ctx) { return moduleOptions; }
+        };
+        List<MenuOption> options = OptionMenu.build(snap("none"),
+                ctx(Map.of(), List.of(), false, List.of(), players, List.of()), List.of(module));
+        assertTrue(options.size() <= 40, "size " + options.size());
+        Set<String> ids = ids(options);
+        assertEquals(options.size(), ids.size(), "ids are unique");
+        for (int i = 0; i < 10; i++) assertTrue(ids.contains("module_option_" + i), ids.toString());
+        assertTrue(ids.containsAll(List.of("wait", "explore_n", "explore_e", "explore_s", "explore_w", "say_hello", "say_help")), ids.toString());
+        assertFalse(ids.contains("Bad Id!"));
+        assertEquals("wait", options.get(options.size() - 1).id(), "fixed options stay last");
+        assertEquals("do nothing for now and think again later", options.get(options.size() - 1).description(), "the fixed wait wins");
     }
 }

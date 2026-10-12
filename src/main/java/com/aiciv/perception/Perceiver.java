@@ -1,6 +1,8 @@
 package com.aiciv.perception;
 
+import com.aiciv.actions.Attachments;
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.modules.ToolModules;
 import com.aiciv.nav.Pos;
 import com.aiciv.world.BlockNames;
 import com.aiciv.world.KnownBlocks;
@@ -57,6 +59,12 @@ public final class Perceiver {
     /** Also records what it sees into {@code known} and forgets remembered blocks that have changed. */
     public static SnapshotData capture(AiPlayer bot, String currentAction, String lastResult, Predicate<ServerPlayer> isAi,
                                        KnownBlocks known) {
+        return capture(bot, currentAction, lastResult, isAi, known, new Attachments());
+    }
+
+    /** As above, with the modules' sections read from the bot's {@code attachments}. */
+    public static SnapshotData capture(AiPlayer bot, String currentAction, String lastResult, Predicate<ServerPlayer> isAi,
+                                       KnownBlocks known, Attachments attachments) {
         ServerLevel level = bot.level();
         BlockPos origin = bot.blockPosition();
         long clock = level.getOverworldClockTime();
@@ -69,7 +77,7 @@ public final class Perceiver {
                 GameTime.day(clock), GameTime.phase(clock), stripNamespace(level.getBiome(origin).getRegisteredName()),
                 held.isEmpty() ? "nothing" : itemId(held), equipment(bot), inventory(bot),
                 blocks, players(bot, isAi), mobs(bot), remembered(known, origin),
-                currentAction, lastResult);
+                currentAction, lastResult, bot.experienceLevel, ToolModules.sections(bot, attachments));
     }
 
     static String equipment(AiPlayer bot) {

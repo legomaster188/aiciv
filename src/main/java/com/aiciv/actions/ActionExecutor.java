@@ -125,6 +125,9 @@ public final class ActionExecutor {
             @Override public AiPlayer player() { return ctx.player(); }
             @Override public KnownBlocks knownBlocks() { return ctx.knownBlocks(); }
             @Override public BlockBreaker breaker() { return ctx.breaker(); }
+            @Override public void event(String text) { ctx.event(text); }
+            @Override public void tell(String botName, String text) { ctx.tell(botName, text); }
+            @Override public Attachments attachments() { return ctx.attachments(); }
         };
     }
 

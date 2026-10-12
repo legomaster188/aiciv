@@ -2,20 +2,17 @@ package com.aiciv.gametest;
 
 import static com.aiciv.gametest.AiCivGameTests.events;
 import static com.aiciv.gametest.AiCivGameTests.removeBot;
+import static com.aiciv.gametest.GameTestKit.decisionLines;
+import static com.aiciv.gametest.GameTestKit.turn;
 
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotManager;
 import com.aiciv.llm.ScriptedBackend;
 import com.aiciv.world.InventoryOps;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
-import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
@@ -25,34 +22,8 @@ import net.minecraft.world.phys.Vec3;
 public final class SurvivalGameTests {
     private static final int SIZE = 16;
 
-    /** One assistant message that chains the given tool calls; each is {name, jsonArguments}. */
-    private static JsonObject turn(String... nameAndArgs) {
-        JsonArray calls = new JsonArray();
-        for (int i = 0; i < nameAndArgs.length; i += 2) {
-            JsonObject function = new JsonObject();
-            function.addProperty("name", nameAndArgs[i]);
-            function.addProperty("arguments", nameAndArgs[i + 1]);
-            JsonObject call = new JsonObject();
-            call.addProperty("id", String.valueOf(i / 2));
-            call.addProperty("type", "function");
-            call.add("function", function);
-            calls.add(call);
-        }
-        JsonObject message = new JsonObject();
-        message.addProperty("content", "");
-        message.add("tool_calls", calls);
-        return message;
-    }
-
     private static void arena(GameTestHelper helper) {
-        // The 8x8 test box is outlined in barriers, which would sit inside a 16x16 arena and block sight and movement.
-        for (int x = -1; x <= SIZE; x++) {
-            for (int y = 0; y <= 8; y++) {
-                for (int z = -1; z <= SIZE; z++) {
-                    if (helper.getBlockState(new BlockPos(x, y, z)).is(Blocks.BARRIER)) helper.setBlock(x, y, z, Blocks.AIR);
-                }
-            }
-        }
+        GameTestKit.clearBarriers(helper, SIZE);
         for (int x = 0; x < SIZE; x++) {
             for (int z = 0; z < SIZE; z++) helper.setBlock(x, 0, z, (x + z) % 3 == 0 ? Blocks.DIRT : Blocks.STONE);
         }
@@ -66,15 +37,6 @@ public final class SurvivalGameTests {
         helper.setBlock(12, 1, 12, Blocks.COAL_ORE);
         helper.setBlock(13, 1, 12, Blocks.COAL_ORE);
         for (int x = 5; x < 8; x++) helper.setBlock(x, 1, 6, Blocks.IRON_ORE);
-    }
-
-    private static List<String> decisionLines(Path dir, String bot) {
-        try {
-            Path file = dir.resolve("logs").resolve(bot + ".jsonl");
-            return Files.exists(file) ? Files.readAllLines(file) : new ArrayList<>();
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
     }
 
     @GameTest(maxTicks = 6000, padding = 24)
