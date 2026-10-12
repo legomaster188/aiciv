@@ -1,5 +1,6 @@
 package com.aiciv.bot;
 
+import com.aiciv.AiCiv;
 import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.SayAction;
@@ -65,11 +66,32 @@ final class BrainScheduler {
 
     private void apply(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, LlmService.Outcome outcome, Throwable err) {
         if (m.bot(b.name).orElse(null) != b) return; // removed or replaced while thinking
+        try {
+            applyChecked(b, ticket, snapshotChars, outcome, err);
+        } catch (RuntimeException e) {
+            AiCiv.LOG.warn("AiCiv could not apply the reply for {}", b.name, e);
+            JsonObject log = new JsonObject();
+            log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
+            log.addProperty("trigger", ticket.reason().name());
+            log.addProperty("error", "could not apply reply: " + e);
+            m.decisionLog().append(b.name, log);
+            b.brain.failed(ticket.reason());
+        }
+    }
+
+    private void applyChecked(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, LlmService.Outcome outcome, Throwable err) {
         JsonObject log = new JsonObject();
         log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
         log.addProperty("trigger", ticket.reason().name());
         log.addProperty("snapshotChars", snapshotChars);
         if (outcome != null) log.addProperty("provider", outcome.route().providerKey());
+
+        if (b.brain.paused()) {
+            log.addProperty("discarded", "paused");
+            b.brain.replied("paused");
+            m.decisionLog().append(b.name, log);
+            return;
+        }
 
         if (err != null || !(outcome instanceof LlmService.Outcome.Reply reply)) {
             String why = err != null ? String.valueOf(err)

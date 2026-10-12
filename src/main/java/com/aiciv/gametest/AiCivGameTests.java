@@ -178,20 +178,35 @@ public final class AiCivGameTests {
             manager.tickStart();
             manager.tickEnd();
         });
+        int[] requestsAfterDeath = new int[1];
         helper.runAfterDelay(5, () -> {
             bot.player.kill(helper.getLevel());
             // The global AiCiv listener only feeds the global manager, so call ours directly.
             manager.onDeath(bot.player);
+            requestsAfterDeath[0] = backend.requests().size();
+            helper.assertTrue(bot.player.getHealth() > 0, "health was not restored");
         });
-        helper.runAfterDelay(10, () -> {
-            int requestsAfterDeath = backend.requests().size();
-            helper.runAfterDelay(60, () -> {
-                helper.assertTrue(manager.bot("TestDies").isEmpty(), "dead bot is still managed");
-                helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == null, "dead bot is still in the player list");
-                helper.assertTrue(backend.requests().size() == requestsAfterDeath, "LLM was called after death");
-                helper.assertTrue(manager.listLines().get(0).startsWith("TestDies [scripted] offline"), manager.listLines().get(0));
-                helper.succeed();
-            });
+        helper.runAfterDelay(45, () -> {
+            helper.assertTrue(manager.bot("TestDies").isEmpty(), "dead bot is still managed");
+            helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == null, "dead bot is still in the player list");
+            helper.assertTrue(backend.requests().size() == requestsAfterDeath[0], "LLM was called after death");
+            helper.assertTrue(manager.listLines().get(0).startsWith("TestDies [scripted] offline"), manager.listLines().get(0));
+            Bot back;
+            try {
+                back = manager.spawn("TestDies", null, null, helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+            } catch (com.aiciv.bot.BotException e) {
+                throw new IllegalStateException(e);
+            }
+            helper.assertTrue(manager.bot("TestDies").isPresent(), "respawned bot is not managed");
+            helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == back.player, "respawned bot is not in the player list");
+            helper.assertTrue(!back.player.isDeadOrDying(), "respawned bot is dead");
+            helper.assertTrue("scripted".equals(back.brain.modelKey()), "respawned bot has model " + back.brain.modelKey());
+            try {
+                manager.remove("TestDies");
+            } catch (com.aiciv.bot.BotException e) {
+                throw new IllegalStateException(e);
+            }
+            helper.succeed();
         });
     }
 }

@@ -72,6 +72,11 @@ public final class BotManager {
                 AiCiv.LOG.warn("Not restoring {}: a player with that name is online", e.name);
                 continue;
             }
+            if (!llm.knowsModel(e.model)) {
+                AiCiv.LOG.warn("{} uses unknown model '{}'; falling back to '{}'", e.name, e.model, config.defaultModel);
+                e.model = config.defaultModel;
+                saveRoster();
+            }
             join(e);
         }
     }
@@ -105,6 +110,7 @@ public final class BotManager {
     public Bot spawn(String name, String modelKey, String persona, ServerLevel level, Vec3 pos) throws BotException {
         if (!NAME.matcher(name).matches()) throw new BotException("Bot names must be 3 to 16 letters, digits or _");
         if (server.getPlayerList().getPlayerByName(name) != null) throw new BotException(name + " is already online");
+        if (name.equalsIgnoreCase("all")) throw new BotException("'all' is reserved");
         Optional<Roster.Entry> existing = roster.get(name);
         String model = modelKey != null ? modelKey
                 : existing.map(e -> e.model).filter(llm::knowsModel).orElse(config.defaultModel);
@@ -210,7 +216,7 @@ public final class BotManager {
     public void tickStart() {
         navBudget.tick();
         for (Bot b : List.copyOf(bots.values())) {
-            if (b.player.isDeadOrDying()) continue;
+            if (b.player.isDeadOrDying() || b.brain.paused()) continue;
             b.navigator.tick();
             String ended = b.executor.tick(b.context);
             if (ended != null) b.brain.actionsEnded(stamp(), ended);
