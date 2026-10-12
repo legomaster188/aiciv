@@ -10,7 +10,7 @@
   "mixins": ["aiciv.mixins.json"],
   "entrypoints": {
     "main": ["com.aiciv.AiCiv"],
-    "fabric-gametest": ["com.aiciv.gametest.AiCivGameTests", "com.aiciv.gametest.CombatGameTests", "com.aiciv.gametest.CraftGameTests", "com.aiciv.gametest.ItemActionGameTests"]
+    "fabric-gametest": ["com.aiciv.gametest.AiCivGameTests", "com.aiciv.gametest.CombatGameTests", "com.aiciv.gametest.CraftGameTests", "com.aiciv.gametest.ItemActionGameTests", "com.aiciv.gametest.SurvivalGameTests"]
   },
   "depends": {
     "fabricloader": ">=0.19.5",
