@@ -28,17 +28,25 @@ public final class AiCiv implements ModInitializer {
 
     private static volatile BotManager manager;
     private static Path configDir;
+    private static volatile MinecraftServer server;
 
     @Override
     public void onInitialize() {
         configDir = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID);
-        ServerLifecycleEvents.SERVER_STARTED.register(AiCiv::start);
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> stop());
-        ServerTickEvents.START_SERVER_TICK.register(server -> {
+        ServerLifecycleEvents.SERVER_STARTED.register(s -> {
+            server = s;
+            try {
+                start(s);
+            } catch (IOException | RuntimeException e) {
+                LOG.error("AiCiv failed to start; fix the config and run /ai reload", e);
+            }
+        });
+        ServerLifecycleEvents.SERVER_STOPPING.register(s -> stop());
+        ServerTickEvents.START_SERVER_TICK.register(s -> {
             BotManager m = manager;
             if (m != null) m.tickStart();
         });
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
+        ServerTickEvents.END_SERVER_TICK.register(s -> {
             BotManager m = manager;
             if (m != null) m.tickEnd();
         });
@@ -58,35 +66,37 @@ public final class AiCiv implements ModInitializer {
         LOG.info("AiCiv initialized");
     }
 
-    /** The running server's bot manager, or null when no server is running. */
+    /** The running server's bot manager, or null when no server is running or AiCiv failed to start. */
     public static BotManager manager() {
         return manager;
     }
 
-    /** Re-reads aiciv.json and keys.json. Returns config problems; empty when clean. */
+    /** Re-reads aiciv.json and keys.json, retrying startup if it failed. Returns config problems; empty when clean. */
     public static List<String> reload() throws IOException {
         BotManager m = manager;
-        if (m == null) throw new IOException("AiCiv is not running");
+        if (m == null) {
+            MinecraftServer s = server;
+            if (s == null) throw new IOException("AiCiv is not running");
+            return start(s);
+        }
         Loaded l = loadServices();
         m.reload(l.config(), l.llm());
         return l.config().validate();
     }
 
-    private static void start(MinecraftServer server) {
-        try {
-            Loaded l = loadServices();
-            Path roster = server.getWorldPath(LevelResource.ROOT).resolve("aiciv").resolve("roster.json");
-            DecisionLog log = new DecisionLog(FabricLoader.getInstance().getGameDir().resolve("logs").resolve("aiciv"));
-            manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC());
-            manager.restoreAll();
-        } catch (IOException | RuntimeException e) {
-            LOG.error("AiCiv failed to start; /ai commands are unavailable", e);
-        }
+    private static List<String> start(MinecraftServer server) throws IOException {
+        Loaded l = loadServices();
+        Path roster = server.getWorldPath(LevelResource.ROOT).resolve("aiciv").resolve("roster.json");
+        DecisionLog log = new DecisionLog(FabricLoader.getInstance().getGameDir().resolve("logs").resolve("aiciv"));
+        manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC());
+        manager.restoreAll();
+        return l.config().validate();
     }
 
     private static void stop() {
         BotManager m = manager;
         manager = null;
+        server = null;
         if (m != null) m.shutdown();
     }
 
@@ -97,8 +107,8 @@ public final class AiCiv implements ModInitializer {
         for (String problem : config.validate()) LOG.warn("aiciv.json: {}", problem);
         KeyStore keys = KeyStore.load(configDir.resolve("keys.json"), System::getenv);
         LlmService llm = LlmService.create(config, keys, configDir, Clock.systemUTC());
-        for (String line : llm.budgetLines()) {
-            if (line.contains("disabled")) LOG.warn("AiCiv provider {}", line);
+        for (String provider : config.providers.keySet()) {
+            if (llm.providerDisabled(provider)) LOG.warn("AiCiv provider {} is {}", provider, llm.providerStatus(provider));
         }
         return new Loaded(config, llm);
     }

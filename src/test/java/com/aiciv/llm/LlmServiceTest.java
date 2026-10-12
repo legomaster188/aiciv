@@ -187,5 +187,9 @@ class LlmServiceTest {
         assertTrue(budget.contains("a: 0 used today, no daily limit, disabled: invalid baseUrl 'http://a b'"), budget);
         assertTrue(s.providerDisabled("a"));
         assertFalse(s.providerDisabled("b"));
+        assertEquals(List.of("a", "b"), s.routeProviders("ma"));
+        assertEquals(List.of("b"), s.routeProviders("mb"));
+        assertEquals(List.of(), s.routeProviders("nope"));
+        assertTrue(s.providerStatus("a").startsWith("disabled: invalid baseUrl 'http://a b'"), s.providerStatus("a"));
     }
 }

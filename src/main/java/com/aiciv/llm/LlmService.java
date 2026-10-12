@@ -126,6 +126,17 @@ public final class LlmService {
         return Optional.empty();
     }
 
+    /** Provider keys on the model's route, primary first, following fallbacks. */
+    public List<String> routeProviders(String modelKey) {
+        return routes(modelKey).stream().map(Route::providerKey).toList();
+    }
+
+    /** Human-readable health of one provider, as shown by /ai budget (e.g. "disabled: no key"). */
+    public String providerStatus(String providerKey) {
+        ProviderHealth h = health.get(providerKey);
+        return h == null ? "unknown provider" : h.status();
+    }
+
     /** True when the provider's key is missing or was rejected. */
     public boolean providerDisabled(String providerKey) {
         ProviderHealth h = health.get(providerKey);

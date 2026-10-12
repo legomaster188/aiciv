@@ -13,7 +13,8 @@ Put `aiciv-0.1.0.jar` and Fabric API 0.161.0+26.3 in `mods/` of a Fabric 26.3 se
 
 ## Keys
 
-First start writes `config/aiciv/aiciv.json` and an empty `config/aiciv/keys.json`.
+Open a world once: the config files are written when a world loads, not at the title screen.
+That creates `config/aiciv/aiciv.json` and an empty `config/aiciv/keys.json`.
 Put keys in `keys.json`, never in `aiciv.json`:
 
 ```json
@@ -30,6 +31,15 @@ and models (`provider`, `model`, `fallback`, `maxTokens`, `extra`). The limits i
 file are examples: replace them with your real tier limits. `0` means unlimited. A model
 whose provider is down, rate limited or out of daily budget hands its turn to its
 `fallback` model.
+
+A fresh `aiciv.json` ships only `gemini`, `groq`, `opencode` and `ollama`. OpenRouter,
+GitHub Models, Mistral and Cerebras must be added by hand, for example:
+
+```json
+"openrouter": { "baseUrl": "https://openrouter.ai/api/v1", "key": "openrouter", "rpm": 20, "rpd": 200, "resetZone": "UTC", "maxInFlight": 2 }
+```
+
+Then add a model that uses it under `models` and put `openrouter` in `keys.json`.
 
 If a Gemini model keeps returning empty replies, it is spending its token budget on
 thinking: raise `maxTokens` or add `"extra": {"reasoning_effort": "none"}` to the model.

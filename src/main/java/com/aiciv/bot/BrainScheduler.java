@@ -37,13 +37,25 @@ final class BrainScheduler {
         }
         while (true) {
             Optional<ThinkQueue.Ticket> ticket = m.queue().pollFirst(name -> m.bot(name)
-                    .map(b -> m.llm().peek(b.brain.modelKey()).isPresent())
+                    .map(this::hasRoute)
                     .orElse(true));
             if (ticket.isEmpty()) return;
             Optional<Bot> bot = m.bot(ticket.get().bot());
             if (bot.isEmpty() || bot.get().player.isDeadOrDying()) continue;
             if (!think(bot.get(), ticket.get(), now)) return;
         }
+    }
+
+    /** True when the bot's model has a route open now; otherwise tells operators about any disabled provider on it. */
+    private boolean hasRoute(Bot b) {
+        String model = b.brain.modelKey();
+        if (m.llm().peek(model).isPresent()) return true;
+        for (String provider : m.llm().routeProviders(model)) {
+            if (!m.llm().providerDisabled(provider)) continue;
+            String status = m.llm().providerStatus(provider);
+            m.warnOpsOnce(provider, status.startsWith("disabled: ") ? status.substring("disabled: ".length()) : status);
+        }
+        return false;
     }
 
     private boolean think(Bot b, ThinkQueue.Ticket ticket, long now) {
