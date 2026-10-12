@@ -19,4 +19,7 @@ public interface BlockView {
 
     /** Water source or flowing water with no collision. */
     boolean water(int x, int y, int z);
+
+    /** A closed door or fence gate the walker can open by hand. */
+    default boolean openable(int x, int y, int z) { return false; }
 }

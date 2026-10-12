@@ -33,6 +33,7 @@ public final class PathSearch {
         Move move = Move.WALK;
         List<Pos> breaks = List.of();
         Pos place;
+        Pos open;
 
         Node(Pos pos, double g, double h, Node parent) {
             this.pos = pos;
@@ -41,10 +42,11 @@ public final class PathSearch {
             this.parent = parent;
         }
 
-        void set(Move move, List<Pos> breaks, Pos place) {
+        void set(Move move, List<Pos> breaks, Pos place, Pos open) {
             this.move = move;
             this.breaks = breaks;
             this.place = place;
+            this.open = open;
         }
 
         double f() {
@@ -131,6 +133,7 @@ public final class PathSearch {
                 relax(cur, new Pos(nx, y, nz), WALK, Move.WALK);
                 continue;
             }
+            if (doorWalk(cur, nx, y, nz)) continue;
             if (canStand(nx, y + 1, nz) && view.passable(p.x(), y + 2, p.z()) && !view.dangerous(p.x(), y + 2, p.z())) {
                 relax(cur, new Pos(nx, y + 1, nz), JUMP, Move.JUMP);
                 continue;
@@ -156,6 +159,15 @@ public final class PathSearch {
         }
         swim(cur);
         if (options.canPlace()) pillar(cur);
+    }
+
+    /** Walk through a closed door or fence gate: the feet cell is openable, the head cell is open air or the upper half. */
+    private boolean doorWalk(Node cur, int nx, int y, int nz) {
+        if (!view.openable(nx, y, nz) || !floorOk(nx, y - 1, nz)) return false;
+        if (!view.openable(nx, y + 1, nz) && !view.passable(nx, y + 1, nz)) return false;
+        if (view.dangerous(nx, y + 1, nz)) return false;
+        relax(cur, new Pos(nx, y, nz), WALK + 1.0, Move.WALK, List.of(), null, new Pos(nx, y, nz));
+        return true;
     }
 
     /** Walk into a cell by breaking its feet and head blocks. */
@@ -204,17 +216,21 @@ public final class PathSearch {
     }
 
     private void relax(Node cur, Pos next, double cost, Move move, List<Pos> breaks, Pos place) {
+        relax(cur, next, cost, move, breaks, place, null);
+    }
+
+    private void relax(Node cur, Pos next, double cost, Move move, List<Pos> breaks, Pos place, Pos opens) {
         double g = cur.g + cost;
         Node n = nodes.get(next);
         if (n == null) {
             n = new Node(next, g, goal.estimate(next), cur);
-            n.set(move, breaks, place);
+            n.set(move, breaks, place, opens);
             nodes.put(next, n);
             open.add(new Entry(n, n.f()));
         } else if (!n.closed && g < n.g - 1e-9) {
             n.g = g;
             n.parent = cur;
-            n.set(move, breaks, place);
+            n.set(move, breaks, place, opens);
             open.add(new Entry(n, n.f()));
         }
     }
@@ -269,7 +285,7 @@ public final class PathSearch {
 
     private static List<PathStep> build(Node end) {
         List<PathStep> out = new ArrayList<>();
-        for (Node n = end; n.parent != null; n = n.parent) out.add(new PathStep(n.pos, n.move, n.breaks, n.place));
+        for (Node n = end; n.parent != null; n = n.parent) out.add(new PathStep(n.pos, n.move, n.breaks, n.place, n.open));
         Collections.reverse(out);
         return out;
     }
