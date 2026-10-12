@@ -37,6 +37,14 @@ class LlmServiceTest {
         }
     }
 
+    /** Throws before returning a future, as HttpChatBackend does for a URI it cannot send to. */
+    static final class ThrowingBackend implements ChatBackend {
+        @Override
+        public CompletableFuture<BackendResult> send(JsonObject body) {
+            throw new IllegalArgumentException("invalid URI scheme localhost");
+        }
+    }
+
     static BackendResult ok(String messageJson) {
         return new BackendResult.Ok(JsonParser.parseString("{\"choices\": [{\"message\": " + messageJson + "}]}").getAsJsonObject());
     }
@@ -150,5 +158,34 @@ class LlmServiceTest {
         assertEquals("none", a.bodies.get(0).get("reasoning_effort").getAsString());
         assertEquals(222, a.bodies.get(0).get("max_tokens").getAsInt());
         assertFalse(a.bodies.get(0).has("tools"));
+    }
+
+    @Test
+    void synchronousSendFailureFreesTheSlotAndIsAFailure() throws Exception {
+        AiCivConfig c = config(0);
+        c.providers.get("a").maxInFlight = 1;
+        FakeBackend b = new FakeBackend();
+        LlmService s = new LlmService(c, Map.of("a", new ThrowingBackend(), "b", b), clock);
+        for (int i = 0; i < 2; i++) {
+            LlmService.Outcome.Failed f = assertInstanceOf(LlmService.Outcome.Failed.class, send(s, "ma"));
+            assertEquals("a", f.route().providerKey());
+            assertTrue(f.reason().contains("invalid URI scheme localhost"), f.reason());
+        }
+        assertEquals("a", s.peek("ma").orElseThrow().providerKey());
+        assertTrue(b.bodies.isEmpty());
+        assertTrue(String.join("\n", s.budgetLines()).contains("invalid URI scheme localhost"));
+    }
+
+    @Test
+    void badBaseUrlDisablesOnlyThatProvider() throws Exception {
+        AiCivConfig c = config(0);
+        c.providers.get("a").baseUrl = "http://a b";
+        KeyStore keys = KeyStore.load(dir.resolve("keys.json"), name -> null);
+        LlmService s = LlmService.create(c, keys, dir, clock);
+        assertEquals("b", s.peek("ma").orElseThrow().providerKey());
+        String budget = String.join("\n", s.budgetLines());
+        assertTrue(budget.contains("a: 0 used today, no daily limit, disabled: invalid baseUrl 'http://a b'"), budget);
+        assertTrue(s.providerDisabled("a"));
+        assertFalse(s.providerDisabled("b"));
     }
 }

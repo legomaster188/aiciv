@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** aiciv.json. Public fields so Gson can fill them; field initializers are the defaults. */
@@ -125,6 +126,8 @@ public final class AiCivConfig {
                 problems.add("provider '" + e.getKey() + "' has unknown type '" + p.type + "'");
             } else if (p.baseUrl == null || p.baseUrl.isBlank()) {
                 problems.add("provider '" + e.getKey() + "' has no baseUrl");
+            } else if (!isHttpUrl(p.baseUrl)) {
+                problems.add("provider '" + e.getKey() + "' baseUrl must start with http:// or https://");
             }
             try {
                 ZoneId.of(p.resetZone);
@@ -136,5 +139,10 @@ public final class AiCivConfig {
             problems.add("defaultModel '" + defaultModel + "' is not a configured model");
         }
         return problems;
+    }
+
+    private static boolean isHttpUrl(String url) {
+        String lower = url.toLowerCase(Locale.ROOT);
+        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 }

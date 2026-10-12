@@ -54,4 +54,15 @@ class AiCivConfigTest {
         assertTrue(problems.contains("invalid resetZone"), problems);
         assertTrue(problems.contains("defaultModel 'missing'"), problems);
     }
+
+    @Test
+    void validateRequiresAnHttpOrHttpsBaseUrl() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"q": {"baseUrl": "localhost:11434/v1"}},
+             "models": {"m": {"provider": "q", "model": "x"}},
+             "defaultModel": "m"}""");
+        String problems = String.join("\n", AiCivConfig.loadOrCreate(file).validate());
+        assertTrue(problems.contains("provider 'q' baseUrl must start with http:// or https://"), problems);
+    }
 }

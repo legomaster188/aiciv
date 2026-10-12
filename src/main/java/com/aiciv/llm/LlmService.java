@@ -71,7 +71,11 @@ public final class LlmService {
                 if (k.isEmpty()) disabled.put(e.getKey(), "no key '" + p.key + "' in keys.json or " + KeyStore.envName(p.key));
                 key = k.orElse(null);
             }
-            backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, Duration.ofSeconds(30)));
+            try {
+                backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, Duration.ofSeconds(30)));
+            } catch (RuntimeException ex) {
+                disabled.put(e.getKey(), "invalid baseUrl '" + p.baseUrl + "': " + ex.getMessage());
+            }
         }
         LlmService service = new LlmService(config, backends, clock);
         disabled.forEach((provider, reason) -> service.health.get(provider).onAuthFailure(reason));
@@ -101,12 +105,22 @@ public final class LlmService {
             RateLimiter limiter = limiters.get(r.providerKey());
             if (!h.available() || !limiter.tryAcquire()) continue;
             ModelConfig m = config.models.get(r.modelKey());
-            JsonObject body = ChatRequest.build(r.modelId(), system, user, tools, m.maxTokens, m.extra);
-            CompletableFuture<Outcome> f = backends.get(r.providerKey()).send(body)
-                    .handle((result, err) -> {
-                        limiter.release();
-                        return settle(r, h, result, err);
-                    });
+            CompletableFuture<BackendResult> sent;
+            try {
+                JsonObject body = ChatRequest.build(r.modelId(), system, user, tools, m.maxTokens, m.extra);
+                sent = backends.get(r.providerKey()).send(body);
+            } catch (RuntimeException e) {
+                // Nothing left the machine: free the slot and count a failure, so a bad URL cannot wedge the provider.
+                limiter.release();
+                String reason = "could not send request: " + e.getClass().getSimpleName()
+                        + (e.getMessage() == null ? "" : ": " + e.getMessage());
+                h.onFailure(reason);
+                return Optional.of(CompletableFuture.completedFuture(new Outcome.Failed(r, reason)));
+            }
+            CompletableFuture<Outcome> f = sent.handle((result, err) -> {
+                limiter.release();
+                return settle(r, h, result, err);
+            });
             return Optional.of(f);
         }
         return Optional.empty();
