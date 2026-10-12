@@ -8,6 +8,7 @@ import com.aiciv.config.KeyStore;
 import com.aiciv.llm.LlmService;
 import com.aiciv.modules.ToolModules;
 import com.aiciv.panel.PanelServer;
+import com.aiciv.world.PlacedBlocks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -45,10 +46,12 @@ public final class AiCiv implements ModInitializer {
             } catch (IOException | RuntimeException e) {
                 LOG.error("AiCiv failed to start; fix the config and run /ai reload", e);
             }
+            PlacedBlocks.of(s);
             ToolModules.serverStarted(s);
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
             ToolModules.serverStopping(s);
+            PlacedBlocks.unload(s);
             stop();
         });
         ServerTickEvents.START_SERVER_TICK.register(s -> {
@@ -60,7 +63,10 @@ public final class AiCiv implements ModInitializer {
             if (m != null) m.tickEnd();
             PanelServer p = panel;
             if (p != null) p.tick();
-            if (s.getTickCount() % AUTOSAVE_TICKS == 0) ToolModules.autosave(s);
+            if (s.getTickCount() % AUTOSAVE_TICKS == 0) {
+                PlacedBlocks.of(s).save();
+                ToolModules.autosave(s);
+            }
         });
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             BotManager m = manager;

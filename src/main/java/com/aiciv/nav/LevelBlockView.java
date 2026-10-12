@@ -3,6 +3,7 @@ package com.aiciv.nav;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.world.BreakTime;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
@@ -60,6 +61,8 @@ public final class LevelBlockView implements BlockView {
         if (s == null || !s.getFluidState().isEmpty() || s.hasBlockEntity() || dangerous(x, y, z)) {
             return Double.POSITIVE_INFINITY;
         }
+        // Someone built this; a bot walks around it rather than through it.
+        if (PlacedBlocks.of(level.getServer()).isPlaced(level, cursor)) return Double.POSITIVE_INFINITY;
         Double cached = breakTimes.get(s);
         if (cached != null) return cached;
         double seconds = BreakTime.seconds(s, s.getDestroySpeed(level, cursor), InventoryOps.bestToolFor(player, s));

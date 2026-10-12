@@ -132,6 +132,13 @@ public final class Perceiver {
         return out; // the scan reports nearest first
     }
 
+    /** Every block state within {@code radius} that passes {@code match} and that a ray from {@code eye} reaches, nearest first. */
+    public static List<BlockPos> exposedStates(ServerLevel level, BlockPos origin, Vec3 eye, int radius, Predicate<BlockState> match) {
+        List<BlockPos> out = new ArrayList<>();
+        scan(level, origin, eye, radius, s -> match.test(s) ? "" : null, (label, p, d2, dx, dy, dz) -> out.add(p));
+        return out;
+    }
+
     private static Vec3 eyeAbove(BlockPos feet) {
         return new Vec3(feet.getX() + 0.5, feet.getY() + 1.62, feet.getZ() + 0.5);
     }

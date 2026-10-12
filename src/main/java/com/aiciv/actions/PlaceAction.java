@@ -72,6 +72,11 @@ public final class PlaceAction implements Action {
                 closer = true;
                 approach(ctx, CLOSE_RADIUS);
                 return ActionStatus.RUNNING;
+            case NOT_VISIBLE:
+                if (closer) return ActionStatus.failed("can't see a face to place against at " + coords());
+                closer = true;
+                approach(ctx, CLOSE_RADIUS);
+                return ActionStatus.RUNNING;
             default:
                 // Usually an entity standing in the cell; give it a moment to move.
                 if (++refused >= REFUSED_TICKS) return ActionStatus.failed("could not place " + name + " at " + coords() + " - something is in the way");
