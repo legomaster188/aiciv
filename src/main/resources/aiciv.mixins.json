@@ -2,6 +2,6 @@
   "required": true,
   "package": "com.aiciv.mixin",
   "compatibilityLevel": "JAVA_25",
-  "mixins": ["ConnectionAccessor", "PlayerListRespawnMixin", "BlockItemPlaceMixin"],
+  "mixins": ["ConnectionAccessor", "PlayerListRespawnMixin", "BlockItemPlaceMixin", "FishingHookAccessor"],
   "injectors": { "defaultRequire": 1 }
 }
