@@ -100,7 +100,7 @@ public final class AiCivGameTests {
         AiPlayer bot = AiPlayer.join(server, "TestNavigator", () -> {});
         bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(0.5, 1, 1.5)), 0.0F);
         NavBudget budget = new NavBudget(NavBudget.DEFAULT_NANOS, System::nanoTime);
-        LevelNavigator nav = new LevelNavigator(bot, budget);
+        LevelNavigator nav = new LevelNavigator(bot, budget, new BlockBreaker(bot));
         BlockPos goal = helper.absolutePos(new BlockPos(6, 2, 1));
         nav.goTo(new NearGoal(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 1.5));
         boolean[] crossedMagma = {false};
@@ -502,5 +502,80 @@ public final class AiCivGameTests {
             helper.assertTrue(dropped == 5, "dropped dirt count " + dropped);
             helper.succeed();
         });
+    }
+
+    /** Walks a bot from (1,1,3) to the goal cell with the navigator; {@code check} runs once it has arrived. */
+    private static void navigate(GameTestHelper helper, String name, ItemStack held, int slot, BlockPos goalCell,
+                                 java.util.function.Consumer<AiPlayer> check) {
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, name, () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        removeOnTimeout(helper, 580, bot);
+        if (held != null) bot.getInventory().setItem(slot, held);
+        NavBudget budget = new NavBudget(NavBudget.DEFAULT_NANOS, System::nanoTime);
+        LevelNavigator nav = new LevelNavigator(bot, budget, new BlockBreaker(bot));
+        BlockPos goal = helper.absolutePos(goalCell);
+        nav.goTo(new NearGoal(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 1.5));
+        helper.onEachTick(() -> {
+            budget.tick();
+            nav.tick();
+            if (nav.status().state() == NavStatus.State.FAILED) {
+                server.getPlayerList().remove(bot);
+                helper.fail("navigator failed: " + nav.status().reason());
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(nav.status().state() == NavStatus.State.ARRIVED, "navigator is " + nav.status().state());
+            check.accept(bot);
+            server.getPlayerList().remove(bot);
+        });
+    }
+
+    @GameTest(maxTicks = 600)
+    public void tunnelsThroughStoneWall(GameTestHelper helper) {
+        stoneFloor(helper);
+        for (int z = 0; z < 8; z++) for (int y = 1; y <= 2; y++) helper.setBlock(4, y, z, Blocks.STONE);
+        navigate(helper, "TestTunnel", new ItemStack(Items.WOODEN_PICKAXE), 15, new BlockPos(6, 1, 3), bot -> {
+            // Clearing the top block and hopping over the lower one is cheaper than a full tunnel, and still digging.
+            int open = 0;
+            for (int z = 0; z < 8; z++) if (helper.getBlockState(new BlockPos(4, 2, z)).isAir()) open++;
+            helper.assertTrue(open >= 1, "the bot dug nothing out of the wall");
+            helper.assertTrue(bot.getX() > helper.absolutePos(new BlockPos(5, 1, 3)).getX(), "bot is still west of the wall");
+        });
+    }
+
+    @GameTest(maxTicks = 600)
+    public void bridgesGapWithDirt(GameTestHelper helper) {
+        stoneFloor(helper);
+        for (int z = 0; z < 8; z++) for (int y = -2; y <= 0; y++) helper.setBlock(4, y, z, Blocks.AIR);
+        navigate(helper, "TestBridge", new ItemStack(Items.DIRT, 4), 20, new BlockPos(6, 1, 3), bot -> {
+            helper.assertTrue(bot.getX() > helper.absolutePos(new BlockPos(5, 1, 3)).getX(), "bot is still west of the trench");
+            int dirt = InventoryOps.count(bot, s -> s.is(Items.DIRT));
+            helper.assertTrue(dirt <= 3, "bot still has " + dirt + " dirt");
+        });
+    }
+
+    @GameTest(maxTicks = 600)
+    public void pillarsOntoLedge(GameTestHelper helper) {
+        stoneFloor(helper);
+        for (int x = 5; x < 8; x++) for (int z = 0; z < 8; z++) for (int y = 1; y <= 2; y++) helper.setBlock(x, y, z, Blocks.STONE);
+        navigate(helper, "TestPillar", new ItemStack(Items.DIRT, 4), 20, new BlockPos(6, 3, 3), bot -> {
+            helper.assertTrue(bot.getY() > helper.absolutePos(new BlockPos(6, 2, 3)).getY() + 0.9, "bot is below the ledge at y " + bot.getY());
+            int dirt = InventoryOps.count(bot, s -> s.is(Items.DIRT));
+            helper.assertTrue(dirt <= 3, "bot still has " + dirt + " dirt");
+        });
+    }
+
+    @GameTest(maxTicks = 600)
+    public void swimsAcrossPool(GameTestHelper helper) {
+        stoneFloor(helper);
+        for (int x = 3; x <= 5; x++) {
+            for (int z = 0; z < 8; z++) {
+                helper.setBlock(x, -3, z, Blocks.STONE);
+                for (int y = -2; y <= 0; y++) helper.setBlock(x, y, z, Blocks.WATER);
+            }
+        }
+        navigate(helper, "TestSwim", null, 0, new BlockPos(7, 1, 3), bot ->
+                helper.assertTrue(bot.getX() > helper.absolutePos(new BlockPos(5, 1, 3)).getX(), "bot did not leave the pool"));
     }
 }

@@ -1,6 +1,8 @@
 package com.aiciv.nav;
 
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.world.BlockBreaker;
+import com.aiciv.world.InventoryOps;
 import net.minecraft.core.BlockPos;
 
 /** Plans with a time-sliced A* search, then walks the path; replans when stuck. */
@@ -9,15 +11,17 @@ public final class LevelNavigator implements Navigator {
 
     private final AiPlayer player;
     private final NavBudget budget;
+    private final BlockBreaker breaker;
     private Goal goal;
     private PathSearch search;
     private PathFollower follower;
     private int replans;
     private NavStatus status = NavStatus.IDLE;
 
-    public LevelNavigator(AiPlayer player, NavBudget budget) {
+    public LevelNavigator(AiPlayer player, NavBudget budget, BlockBreaker breaker) {
         this.player = player;
         this.budget = budget;
+        this.breaker = breaker;
     }
 
     @Override
@@ -37,6 +41,7 @@ public final class LevelNavigator implements Navigator {
         cancelSearch();
         goal = null;
         follower = null;
+        breaker.cancel();
         status = NavStatus.IDLE;
         player.stopMoving();
     }
@@ -58,7 +63,7 @@ public final class LevelNavigator implements Navigator {
                     return;
                 }
                 case FOUND -> {
-                    follower = new PathFollower(search.path());
+                    follower = new PathFollower(search.steps(), breaker);
                     search = null;
                 }
             }
@@ -77,8 +82,10 @@ public final class LevelNavigator implements Navigator {
     private void plan() {
         cancelSearch();
         follower = null;
+        breaker.cancel();
         player.stopMoving();
-        search = new PathSearch(new LevelBlockView(player.level()), feet(), goal, PathSearch.MAX_NODES);
+        SearchOptions options = new SearchOptions(true, InventoryOps.throwawayCount(player) > 0);
+        search = new PathSearch(new LevelBlockView(player.level(), player), feet(), goal, PathSearch.MAX_NODES, options);
         budget.submit(search);
         status = NavStatus.RUNNING;
     }
@@ -95,6 +102,7 @@ public final class LevelNavigator implements Navigator {
     private void arrive() {
         cancelSearch();
         follower = null;
+        breaker.cancel();
         goal = null;
         status = NavStatus.ARRIVED;
         player.stopMoving();
@@ -103,6 +111,7 @@ public final class LevelNavigator implements Navigator {
     private void fail(String reason) {
         cancelSearch();
         follower = null;
+        breaker.cancel();
         goal = null;
         status = NavStatus.failed(reason);
         player.stopMoving();

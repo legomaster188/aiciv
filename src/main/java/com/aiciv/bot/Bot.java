@@ -4,6 +4,7 @@ import com.aiciv.actions.ActionExecutor;
 import com.aiciv.actions.BotContext;
 import com.aiciv.brain.BotBrain;
 import com.aiciv.nav.LevelNavigator;
+import com.aiciv.world.BlockBreaker;
 
 /** One online AI player and everything that drives it. */
 public final class Bot {
@@ -12,13 +13,16 @@ public final class Bot {
     public final BotBrain brain;
     public final ActionExecutor executor;
     public final LevelNavigator navigator;
+    public final BlockBreaker breaker;
     public BotContext context;
 
-    Bot(String name, AiPlayer player, BotBrain brain, ActionExecutor executor, LevelNavigator navigator) {
+    Bot(String name, AiPlayer player, BotBrain brain, ActionExecutor executor, LevelNavigator navigator,
+        BlockBreaker breaker) {
         this.name = name;
         this.player = player;
         this.brain = brain;
         this.executor = executor;
         this.navigator = navigator;
+        this.breaker = breaker;
     }
 }

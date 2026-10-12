@@ -11,6 +11,7 @@ import com.aiciv.llm.LlmService;
 import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
 import com.aiciv.perception.GameTime;
+import com.aiciv.world.BlockBreaker;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -321,7 +322,8 @@ public final class BotManager {
         BotBrain brain = new BotBrain(e.name, e.persona, e.goal, e.model, config.eventWindow,
                 config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, clock.millis());
         brain.setPaused(e.paused);
-        Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget));
+        BlockBreaker breaker = new BlockBreaker(p);
+        Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget, breaker), breaker);
         b.context = new LiveContext(this, b);
         bots.put(key(e.name), b);
         return b;

@@ -1,5 +1,10 @@
 package com.aiciv.nav;
 
+import com.aiciv.bot.AiPlayer;
+import com.aiciv.world.BreakTime;
+import com.aiciv.world.InventoryOps;
+import java.util.HashMap;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -14,8 +19,18 @@ public final class LevelBlockView implements BlockView {
     private final ServerLevel level;
     private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 
+    private final AiPlayer player;
+    /** Break time by block state: the planner asks about the same few states over and over. */
+    private final Map<BlockState, Double> breakTimes = new HashMap<>();
+
+    /** A view that never breaks anything. */
     public LevelBlockView(ServerLevel level) {
+        this(level, null);
+    }
+
+    public LevelBlockView(ServerLevel level, AiPlayer player) {
         this.level = level;
+        this.player = player;
     }
 
     private BlockState at(int x, int y, int z) {
@@ -40,7 +55,16 @@ public final class LevelBlockView implements BlockView {
 
     @Override
     public double breakSeconds(int x, int y, int z) {
-        return Double.POSITIVE_INFINITY;
+        if (player == null) return Double.POSITIVE_INFINITY;
+        BlockState s = at(x, y, z);
+        if (s == null || !s.getFluidState().isEmpty() || s.hasBlockEntity() || dangerous(x, y, z)) {
+            return Double.POSITIVE_INFINITY;
+        }
+        Double cached = breakTimes.get(s);
+        if (cached != null) return cached;
+        double seconds = BreakTime.seconds(s, s.getDestroySpeed(level, cursor), InventoryOps.bestToolFor(player, s));
+        breakTimes.put(s, seconds);
+        return seconds;
     }
 
     @Override
