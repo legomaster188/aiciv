@@ -75,6 +75,31 @@ probabilities and always use menu mode. The decision log gains `mode`, `option`,
 
 On OpenRouter use `typesafe/jev-1.13`; `typesafe/jev-router` is a chat router to other models, not Jev.
 
+## Actions
+
+Bots play survival with the same limits as a player (real break times, correct tools, crafting tables,
+furnaces and fuel, reach, attack cooldown). Each action ends as done or failed with a reason.
+
+| Action | What it does |
+|--------|--------------|
+| `say(text)` | Public chat |
+| `goTo(x, y, z)`, `goToPlayer(name)`, `follow(name, seconds)` | Walk (swim, jump, dig, pillar and bridge as needed) |
+| `explore(direction, distance)` | Walk N/NE/E/SE/S/SW/W/NW up to 128 blocks |
+| `mine(block, count)` | Mine `count` more (1 to 64), moving between blocks or trees; `log` means any tree |
+| `collect(item)` | Pick up nearby dropped items |
+| `craft(item, count)` | Crafts intermediates (planks, sticks, a table) and places a crafting table if needed |
+| `smelt(item, count)` | Smelts in a furnace with inventory fuel; places a furnace if it has or can craft one |
+| `place(block, x, y, z)` | Places a carried block within reach |
+| `eat()` | Eats the best food carried |
+| `equip(item)` | Wears armor or holds a tool |
+| `attack(target)` | Fights a mob type or player with the best weapon carried |
+| `stop()` | Stand still |
+
+Tip: one turn can chain up to 6 actions (`maxActionsPerDecision`), for example
+`mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe`.
+
+Fighting mobs needs the world difficulty set to Easy or higher; on Peaceful hostile mobs do not spawn.
+
 ## Commands (op level 2)
 
 In singleplayer, `/ai` needs cheats enabled for the world.
@@ -105,9 +130,9 @@ messages from `config/aiciv/scripted.json` in order, for example
 
 Developers: `./gradlew test` runs the unit tests, `./gradlew runGametest` the in-game tests.
 
-## Milestone 1 limits
+## Limits
 
-No mining, crafting or building yet.
+No building plans or chests yet.
 
 A bot that dies respawns like a player (at the world spawn or its bed) with full health, and is
 told what killed it and where its items dropped.

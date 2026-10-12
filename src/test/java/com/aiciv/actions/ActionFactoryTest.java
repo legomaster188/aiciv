@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.aiciv.llm.ToolCall;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class ActionFactoryTest {
@@ -38,7 +40,7 @@ class ActionFactoryTest {
     void unknownActionListsTheRealOnes() {
         String r = invalid(call("fly", "{}"));
         assertTrue(r.contains("unknown action 'fly'"), r);
-        assertTrue(r.contains("say, goTo, goToPlayer, follow, explore, mine, collect, stop"), r);
+        assertTrue(r.contains("say, goTo, goToPlayer, follow, explore, mine, collect, craft, smelt, place, eat, equip, attack, stop"), r);
     }
 
     @Test
@@ -70,11 +72,52 @@ class ActionFactoryTest {
     @Test
     void catalogNamesMatchTheFactory() {
         var tools = ToolCatalog.tools();
-        assertEquals(5, tools.size());
+        assertEquals(14, tools.size());
+        Set<String> catalog = new HashSet<>();
         for (var t : tools) {
             String name = t.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
+            catalog.add(key(name));
             assertFalse(ActionFactory.create(ToolCall.of(name, new JsonObject())).toString().contains("unknown action"), name);
+            assertFalse(t.getAsJsonObject().getAsJsonObject("function").get("description").getAsString().isBlank(), name);
         }
+        assertEquals(ActionFactory.knownKeys(), catalog);
+        for (String name : ActionFactory.AVAILABLE.split(", ")) assertTrue(catalog.contains(key(name)), name);
+        assertEquals(14, ActionFactory.AVAILABLE.split(", ").length);
+    }
+
+    private static String key(String name) {
+        return name.toLowerCase(java.util.Locale.ROOT).replace("_", "");
+    }
+
+    @Test
+    void guideExplainsChaining() {
+        assertTrue(ToolCatalog.guide().contains("chain up to 6 actions"));
+    }
+
+    @Test
+    void craftSmeltAndMineDefaultAndClampCounts() {
+        assertEquals(CraftAction.class, ok(call("craft", "{\"item\": \"wooden_pickaxe\"}")).getClass());
+        assertTrue(ok(call("craft", "{\"item\": \"stick\"}")).describe().contains("1"));
+        assertTrue(ok(call("craft", "{\"item\": \"stick\", \"count\": 500}")).describe().contains("64"));
+        assertTrue(ok(call("craft", "{\"item\": \"stick\", \"count\": -3}")).describe().contains("1"));
+        assertEquals(SmeltAction.class, ok(call("smelt", "{\"item\": \"raw_iron\", \"count\": 99}")).getClass());
+        assertTrue(ok(call("smelt", "{\"item\": \"raw_iron\", \"count\": 99}")).describe().contains("64"));
+        assertTrue(ok(call("mine", "{\"block\": \"stone\"}")).describe().contains("1"));
+        assertTrue(invalid(call("craft", "{}")).contains("item"));
+        assertTrue(invalid(call("smelt", "{\"item\": \" \"}")).contains("item"));
+    }
+
+    @Test
+    void placeEatEquipAndAttackAreBuilt() {
+        assertEquals(PlaceAction.class, ok(call("place", "{\"block\": \"torch\", \"x\": 1, \"y\": 64, \"z\": 2}")).getClass());
+        assertTrue(invalid(call("place", "{\"block\": \"torch\", \"x\": 1, \"y\": 64}")).contains("x, y and z"));
+        assertTrue(invalid(call("place", "{\"x\": 1, \"y\": 64, \"z\": 2}")).contains("block"));
+        assertTrue(invalid(call("place", "{\"block\": \"torch\", \"x\": 1, \"y\": 999, \"z\": 2}")).contains("between -64 and 320"));
+        assertInstanceOf(EatAction.class, ok(call("eat", "{}")));
+        assertInstanceOf(EquipAction.class, ok(call("equip", "{\"item\": \"iron_chestplate\"}")));
+        assertTrue(invalid(call("equip", "{}")).contains("item"));
+        assertInstanceOf(AttackAction.class, ok(call("attack", "{\"target\": \"zombie\"}")));
+        assertTrue(invalid(call("attack", "{}")).contains("target"));
     }
 
     @Test

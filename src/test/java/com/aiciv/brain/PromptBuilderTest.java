@@ -9,13 +9,13 @@ class PromptBuilderTest {
     @Test
     void systemPromptCarriesIdentityAndRules() {
         String s = PromptBuilder.system("Ada", "a cheerful explorer", "build a lighthouse",
-                List.of("Bob [AI]", "Steve [human]"), 3, "TOOLS GO HERE");
+                List.of("Bob [AI]", "Steve [human]"), 6, "TOOLS GO HERE");
         assertTrue(s.contains("You are Ada"));
         assertTrue(s.contains("one of 3 people"));
         assertTrue(s.contains("Bob [AI], Steve [human]"));
         assertTrue(s.contains("a cheerful explorer"));
         assertTrue(s.contains("build a lighthouse"));
-        assertTrue(s.contains("up to 3"));
+        assertTrue(s.contains("up to 6"));
         assertTrue(s.contains("TOOLS GO HERE"));
     }
 

@@ -14,6 +14,9 @@ import com.aiciv.brain.WakeReason;
 import com.aiciv.llm.LlmService;
 import com.aiciv.llm.MenuReply;
 import com.aiciv.llm.ToolCall;
+import com.aiciv.craft.CraftPlanner;
+import com.aiciv.craft.RecipeBook;
+import com.aiciv.craft.RecipeOption;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.perception.Sighting;
 import com.aiciv.perception.SnapshotData;
@@ -157,8 +160,22 @@ final class BrainScheduler {
         }
         List<String> players = new ArrayList<>();
         for (Sighting s : data.players()) players.add(s.label().replaceAll(" \\[(AI|human)\\]$", ""));
-        // Task 7's CraftPlanner supplies craftable targets; until it is wired in, menus offer none.
-        return new MenuContext(inventory, List.of(), data.food() <= 12, hostile, players, mineable.stream().distinct().toList());
+        return new MenuContext(inventory, craftableTargets(b, inventory), data.food() <= 12, hostile, players, mineable.stream().distinct().toList());
+    }
+
+    /** Progression items worth offering as menu choices. */
+    static final List<String> CRAFT_TARGETS = List.of("crafting_table", "wooden_pickaxe", "stone_pickaxe", "furnace",
+            "iron_pickaxe", "iron_sword", "iron_chestplate", "bread", "torch");
+
+    /** The progression items the bot could craft right now (a table within 4 blocks, or one it holds or can make). */
+    private static List<String> craftableTargets(Bot b, Map<String, Integer> inventory) {
+        List<RecipeOption> recipes = RecipeBook.load(b.player.level()); // cached until the recipes reload
+        boolean tableNearby = !Perceiver.exposedBlocks(b.player.level(), b.player.blockPosition(), 4, id -> id.equals(CraftPlanner.TABLE)).isEmpty();
+        List<String> out = new ArrayList<>();
+        for (String target : CRAFT_TARGETS) {
+            if (CraftPlanner.canMake(target, 1, inventory, recipes, tableNearby)) out.add(target);
+        }
+        return out;
     }
 
     private void apply(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options, LlmService.Outcome outcome, Throwable err) {

@@ -115,4 +115,25 @@ class OptionMenuTest {
         assertTrue(seen.containsAll(List.of("wait", "explore_n", "explore_e", "explore_s", "explore_w")));
         assertTrue(seen.contains("eat"), "the highest priority option is kept");
     }
+
+    @Test
+    void everyCallInARichMenuIsAcceptedByTheActionFactory() {
+        Map<String, Integer> inventory = new LinkedHashMap<>();
+        inventory.put("oak_log", 8);
+        inventory.put("bread", 3);
+        inventory.put("raw_iron", 4);
+        inventory.put("iron_chestplate", 1);
+        MenuContext rich = ctx(inventory, List.of("crafting_table", "wooden_pickaxe"), true, List.of("zombie"),
+                List.of("Steve"), List.of("oak_log", "stone", "iron_ore"));
+        List<MenuOption> options = OptionMenu.build(snap("none"), rich);
+        Set<String> names = new HashSet<>();
+        for (MenuOption o : options) {
+            for (var call : o.calls()) {
+                names.add(call.name());
+                var r = com.aiciv.actions.ActionFactory.create(call);
+                assertInstanceOf(com.aiciv.actions.ActionFactory.Result.Ok.class, r, o.id() + " -> " + call.name() + " " + call.args() + ": " + r);
+            }
+        }
+        assertTrue(names.containsAll(Set.of("mine", "craft", "smelt", "eat", "equip", "attack", "explore", "goToPlayer", "follow", "say")), names.toString());
+    }
 }
