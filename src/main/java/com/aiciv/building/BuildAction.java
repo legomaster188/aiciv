@@ -3,6 +3,7 @@ package com.aiciv.building;
 import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionStatus;
 import com.aiciv.actions.Approach;
+import com.aiciv.actions.ItemGatherer;
 import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.nav.NavStatus;
@@ -29,6 +30,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -88,6 +90,8 @@ public final class BuildAction implements Action {
     private boolean breaking;
     private final Set<BlockPos> deferred = new HashSet<>();
     private final Set<BlockPos> giveUp = new HashSet<>();
+    /** Picks the scaffolding back up: the break leaves the drops where the block stood, often out of the bot's reach. */
+    private final ItemGatherer gatherer = new ItemGatherer(this::scaffoldDrops);
 
     public BuildAction(String name, Blueprint blueprint, BlockPos originOrNull, Facing facingOrNull, String kind) {
         this.name = name;
@@ -238,7 +242,12 @@ public final class BuildAction implements Action {
         }
         BlockPos scaffold = nextScaffold(level, p);
         if (scaffold != null) return begin(ctx, p, level, Job.SCAFFOLD, scaffold);
+        if (gatherer.tick(ctx)) return ActionStatus.RUNNING;
         return finish(ctx, p, level);
+    }
+
+    private List<ItemEntity> scaffoldDrops(BotContext ctx) {
+        return ctx.player().level().getEntitiesOfClass(ItemEntity.class, scaffoldBox, item -> InventoryOps.isThrowaway(item.getItem()));
     }
 
     private ActionStatus begin(BotContext ctx, AiPlayer p, ServerLevel level, Job next, BlockPos at) {

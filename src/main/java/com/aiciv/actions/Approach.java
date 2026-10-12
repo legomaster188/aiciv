@@ -27,6 +27,11 @@ public final class Approach {
     private static final double EYE_HEIGHT = 1.62;
     /** Slack for the bot not standing exactly at its block's centre. */
     private static final double GOAL_SLACK = 0.5;
+    /**
+     * Smallest goal radius. The goal sits 1.62 below the target so the eyes end up level with it, but a block at floor
+     * level then puts the goal 1.12 below any standable cell; anything under about 1.5 could never be reached.
+     */
+    private static final double MIN_GOAL_RADIUS = 1.6;
     private static final Status RUNNING = new Status(State.RUNNING, "");
     private static final Status ARRIVED = new Status(State.ARRIVED, "");
 
@@ -117,7 +122,7 @@ public final class Approach {
         walking = true;
         failureCounted = false;
         idleTicks = 0;
-        ctx.navigator().goTo(new NearGoal(c.x, c.y - EYE_HEIGHT, c.z, Math.max(0.5, r - GOAL_SLACK)));
+        ctx.navigator().goTo(new NearGoal(c.x, c.y - EYE_HEIGHT, c.z, Math.max(MIN_GOAL_RADIUS, r - GOAL_SLACK)));
     }
 
     private Status fail(BotContext ctx, String reason) {
