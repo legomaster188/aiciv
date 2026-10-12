@@ -58,9 +58,15 @@ public final class AiCivGameTests {
         LevelNavigator nav = new LevelNavigator(bot, budget);
         BlockPos goal = helper.absolutePos(new BlockPos(6, 2, 1));
         nav.goTo(new NearGoal(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 1.5));
+        boolean[] crossedMagma = {false};
         helper.onEachTick(() -> {
             budget.tick();
             nav.tick();
+            if (helper.getLevel().getBlockState(bot.blockPosition().below()).is(Blocks.MAGMA_BLOCK)) crossedMagma[0] = true;
+            if (crossedMagma[0] || nav.status().state() == NavStatus.State.FAILED) {
+                server.getPlayerList().remove(bot);
+                helper.fail(crossedMagma[0] ? "bot stepped on magma" : "navigator failed: " + nav.status().reason());
+            }
         });
         helper.succeedWhen(() -> {
             NavStatus s = nav.status();
@@ -77,6 +83,9 @@ public final class AiCivGameTests {
         // A diamond ore with stone on all six sides: it must stay invisible.
         for (int x = 5; x <= 7; x++) for (int y = 1; y <= 3; y++) for (int z = 5; z <= 7; z++) helper.setBlock(x, y, z, Blocks.STONE);
         helper.setBlock(6, 2, 6, Blocks.DIAMOND_ORE);
+        // A lava source sealed in stone: fluids must not be seen through walls either.
+        for (int x = 1; x <= 3; x++) for (int y = 1; y <= 3; y++) for (int z = 5; z <= 7; z++) helper.setBlock(x, y, z, Blocks.STONE);
+        helper.setBlock(2, 2, 6, Blocks.LAVA);
         MinecraftServer server = helper.getLevel().getServer();
         AiPlayer bot = AiPlayer.join(server, "TestPerceiver", () -> {});
         bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)), 0.0F);
@@ -87,6 +96,7 @@ public final class AiCivGameTests {
             helper.assertTrue(text.startsWith("You: TestPerceiver"), text);
             helper.assertTrue(text.contains("crafting_table"), "snapshot misses the crafting table:\n" + text);
             helper.assertTrue(!text.contains("diamond_ore"), "snapshot shows a buried ore:\n" + text);
+            helper.assertTrue(!text.contains("lava"), "snapshot shows enclosed lava:\n" + text);
             helper.succeed();
         });
     }

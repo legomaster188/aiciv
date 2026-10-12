@@ -76,7 +76,7 @@ public final class Perceiver {
                     String label = label(s);
                     if (label == null) continue;
                     boolean fluid = label.equals("water") || label.equals("lava");
-                    if (!fluid && !exposed(level, p)) continue;
+                    if (!exposed(level, p, !fluid)) continue;
                     int[] agg = seen.computeIfAbsent(label, k -> new int[] {0, Integer.MAX_VALUE, 0, 0});
                     agg[0]++;
                     if (d2 < agg[1]) {
@@ -105,12 +105,13 @@ public final class Perceiver {
         return null;
     }
 
-    static boolean exposed(ServerLevel level, BlockPos p) {
+    /** Solid blocks count as exposed beside air or water; fluids only beside air. */
+    static boolean exposed(ServerLevel level, BlockPos p, boolean waterCounts) {
         for (Direction d : Direction.values()) {
             BlockPos n = p.relative(d);
             if (!level.isLoaded(n)) continue;
             BlockState s = level.getBlockState(n);
-            if (s.isAir() || s.getFluidState().is(FluidTags.WATER)) return true;
+            if (s.isAir() || (waterCounts && s.getFluidState().is(FluidTags.WATER))) return true;
         }
         return false;
     }
