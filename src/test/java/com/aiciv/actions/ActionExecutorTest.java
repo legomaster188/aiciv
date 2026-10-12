@@ -21,10 +21,13 @@ class ActionExecutorTest {
             this.statuses = new ArrayDeque<>(List.of(statuses));
         }
 
-        @Override public ActionStatus tick(BotContext ctx) { return statuses.isEmpty() ? ActionStatus.RUNNING : statuses.poll(); }
+        @Override public ActionStatus tick(BotContext ctx) { ticked++; return statuses.isEmpty() ? ActionStatus.RUNNING : statuses.poll(); }
         @Override public String describe() { return name; }
         @Override public int timeoutTicks() { return timeout; }
         @Override public void cancel(BotContext ctx) { cancels++; }
+        int ticked;
+        int interrupts;
+        @Override public void interrupted(BotContext ctx) { interrupts++; }
     }
 
     FakeContext ctx = new FakeContext();
@@ -115,5 +118,36 @@ class ActionExecutorTest {
         assertFalse(ex.busy());
         assertEquals("none", ex.currentDescription());
         assertEquals(1, a.cancels);
+    }
+
+    @Test
+    void pauseInterruptsOnceAndFreezesTheAction() {
+        Scripted a = new Scripted("a", 3);
+        ex.replace(List.of(a), ctx);
+        assertNull(ex.tick(ctx));
+        ex.pause(ctx);
+        ex.pause(ctx);
+        assertTrue(ex.paused());
+        assertEquals(1, a.interrupts);
+        for (int i = 0; i < 10; i++) assertNull(ex.tick(ctx)); // would have timed out if it ran down
+        assertEquals(1, a.ticked);
+        ex.resume(ctx);
+        assertFalse(ex.paused());
+        assertNull(ex.tick(ctx));
+        assertEquals(2, a.ticked);
+        assertEquals("a", ex.currentDescription());
+    }
+
+    @Test
+    void pausedExecutorHoldsQueuedActionsToo() {
+        Scripted a = new Scripted("a", 100, ActionStatus.DONE);
+        ex.replace(List.of(a), ctx);
+        ex.pause(ctx); // nothing is current yet, so nothing to interrupt
+        assertEquals(0, a.interrupts);
+        assertNull(ex.tick(ctx));
+        assertEquals(0, a.ticked);
+        assertTrue(ex.busy());
+        ex.resume(ctx);
+        assertEquals("finished: a", ex.tick(ctx));
     }
 }

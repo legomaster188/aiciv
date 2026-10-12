@@ -272,6 +272,14 @@ public final class MineAction implements Action {
     }
 
     @Override
+    public void interrupted(BotContext ctx) {
+        ctx.breaker().cancel();
+        gatherer.stop(ctx);
+        // A dig or walk in progress is dropped; picking again re-plans from here. Collecting resumes as it was.
+        if (phase == Phase.NAVIGATE || phase == Phase.BREAK) phase = Phase.PICK;
+    }
+
+    @Override
     public void cancel(BotContext ctx) {
         ctx.breaker().cancel();
         gatherer.stop(ctx);

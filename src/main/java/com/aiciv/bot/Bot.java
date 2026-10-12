@@ -4,6 +4,7 @@ import com.aiciv.actions.ActionExecutor;
 import com.aiciv.actions.BotContext;
 import com.aiciv.brain.BotBrain;
 import com.aiciv.nav.LevelNavigator;
+import com.aiciv.reflex.ReflexController;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.KnownBlocks;
 
@@ -17,6 +18,7 @@ public final class Bot {
     public LevelNavigator navigator;
     public BlockBreaker breaker;
     public final KnownBlocks knownBlocks = new KnownBlocks(128);
+    public final ReflexController reflexes = new ReflexController();
     public BotContext context;
     /** Set between a death and the respawn on the next tick. */
     Death death;

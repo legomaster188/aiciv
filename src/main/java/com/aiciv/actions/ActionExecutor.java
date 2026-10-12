@@ -11,6 +11,7 @@ public final class ActionExecutor {
     private final List<String> finished = new ArrayList<>();
     private Action current;
     private int ticksOnCurrent;
+    private boolean paused;
 
     public void replace(List<Action> actions, BotContext ctx) {
         stop(ctx);
@@ -24,6 +25,26 @@ public final class ActionExecutor {
         finished.clear();
     }
 
+    /** Holds the current action (and the queue) while a reflex has the bot. Tells the action it was interrupted. */
+    public void pause(BotContext ctx) {
+        if (paused) return;
+        paused = true;
+        if (current == null) return;
+        try {
+            current.interrupted(ctx);
+        } catch (RuntimeException ignored) {
+            // A broken interrupted() must not stop the reflex; the action re-plans from scratch or fails by itself.
+        }
+    }
+
+    public void resume(BotContext ctx) {
+        paused = false;
+    }
+
+    public boolean paused() {
+        return paused;
+    }
+
     public boolean busy() {
         return current != null || !queue.isEmpty();
     }
@@ -34,6 +55,7 @@ public final class ActionExecutor {
 
     /** Runs one tick. Returns a summary when the whole sequence just ended, otherwise null. */
     public String tick(BotContext ctx) {
+        if (paused) return null; // a reflex has the bot; timeouts do not run down meanwhile
         if (current == null) {
             current = queue.poll();
             ticksOnCurrent = 0;

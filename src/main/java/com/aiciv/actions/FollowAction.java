@@ -49,6 +49,11 @@ public final class FollowAction implements Action {
     }
 
     @Override
+    public void interrupted(BotContext ctx) {
+        anchor = null;
+    }
+
+    @Override
     public void cancel(BotContext ctx) {
         ctx.navigator().stop();
     }

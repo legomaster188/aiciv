@@ -117,4 +117,40 @@ class MovementActionsTest {
         assertEquals(ActionStatus.DONE, new SayAction("hello").tick(ctx));
         assertEquals(java.util.List.of("hello"), ctx.said);
     }
+
+    @Test
+    void interruptedMovementPlansAgainFromWhereTheBotIs() {
+        GoToAction goTo = new GoToAction(10, 64, 0);
+        goTo.tick(ctx);
+        goTo.interrupted(ctx);
+        ctx.navigator.status = NavStatus.IDLE;
+        assertEquals(ActionStatus.RUNNING, goTo.tick(ctx));
+        assertEquals(2, ctx.navigator.goals.size());
+
+        ctx.players.put("Steve", new Vec3(20.5, 64, 0.5));
+        GoToPlayerAction toPlayer = new GoToPlayerAction("Steve");
+        toPlayer.tick(ctx);
+        ctx.navigator.status = NavStatus.failed("a reflex got in the way");
+        toPlayer.interrupted(ctx);
+        assertEquals(ActionStatus.RUNNING, toPlayer.tick(ctx));
+        assertEquals(NavStatus.State.RUNNING, ctx.navigator.status().state());
+
+        FollowAction follow = new FollowAction("Steve", 30);
+        follow.tick(ctx);
+        int before = ctx.navigator.goals.size();
+        ctx.navigator.status = NavStatus.IDLE;
+        follow.interrupted(ctx);
+        follow.tick(ctx);
+        assertEquals(before + 1, ctx.navigator.goals.size());
+    }
+
+    @Test
+    void interruptedExploreKeepsItsOriginalDestination() {
+        ExploreAction explore = new ExploreAction("N", 40);
+        explore.tick(ctx);
+        ctx.position = new Vec3(0.5, 64, -20.5);
+        explore.interrupted(ctx);
+        explore.tick(ctx);
+        assertEquals(ctx.navigator.goals.get(0), ctx.navigator.goals.get(1));
+    }
 }

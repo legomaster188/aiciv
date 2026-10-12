@@ -25,6 +25,7 @@ public final class ExploreAction implements Action {
     private final int distance;
     private final double[] unit;
     private boolean started;
+    private ColumnGoal goal;
 
     public ExploreAction(String direction, int distance) {
         this.unit = DIRECTIONS.get(key(direction));
@@ -46,8 +47,11 @@ public final class ExploreAction implements Action {
     public ActionStatus tick(BotContext ctx) {
         if (!started) {
             started = true;
-            Vec3 p = ctx.position();
-            ctx.navigator().goTo(new ColumnGoal(p.x + unit[0] * distance, p.z + unit[1] * distance, ARRIVE_RADIUS));
+            if (goal == null) {
+                Vec3 p = ctx.position();
+                goal = new ColumnGoal(p.x + unit[0] * distance, p.z + unit[1] * distance, ARRIVE_RADIUS);
+            }
+            ctx.navigator().goTo(goal);
             return ActionStatus.RUNNING;
         }
         NavStatus s = ctx.navigator().status();
@@ -57,6 +61,11 @@ public final class ExploreAction implements Action {
             case FAILED -> ActionStatus.failed(s.reason());
             case IDLE -> ActionStatus.failed("navigation stopped");
         };
+    }
+
+    @Override
+    public void interrupted(BotContext ctx) {
+        started = false; // walk on toward the same spot
     }
 
     @Override

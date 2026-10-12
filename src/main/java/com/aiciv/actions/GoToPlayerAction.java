@@ -43,6 +43,11 @@ public final class GoToPlayerAction implements Action {
     }
 
     @Override
+    public void interrupted(BotContext ctx) {
+        anchor = null;
+    }
+
+    @Override
     public void cancel(BotContext ctx) {
         ctx.navigator().stop();
     }
