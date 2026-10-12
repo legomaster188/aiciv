@@ -2,11 +2,13 @@ package com.aiciv.gametest;
 
 import com.aiciv.actions.EatAction;
 import com.aiciv.actions.EquipAction;
+import com.aiciv.actions.GoToAction;
 import com.aiciv.actions.PlaceAction;
 import com.aiciv.actions.SmeltAction;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotManager;
 import com.aiciv.llm.ScriptedBackend;
+import com.aiciv.reflex.ReflexEat;
 import com.aiciv.world.InventoryOps;
 import java.nio.file.Files;
 import java.util.List;
@@ -17,6 +19,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.phys.Vec3;
 
 /** Smelt, place, eat and equip, driven through a real bot on a small stone floor. */
@@ -161,6 +164,87 @@ public final class ItemActionGameTests {
             removeBot(manager[0], "TestEatFull");
             helper.assertTrue(text.contains("not hungry"), "expected not hungry: " + text);
             helper.succeed();
+        });
+    }
+
+    /** A reflex that takes over mid-meal stops the eating; the eat action starts the meal again afterwards. */
+    @GameTest(maxTicks = 200)
+    public void eatRestartsAfterAnInterruption(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestEatResume");
+        bot.player.getFoodData().setFoodLevel(10);
+        bot.player.getInventory().setItem(3, new ItemStack(Items.BREAD, 2));
+        bot.executor.replace(List.of(new EatAction()), bot.context);
+        helper.runAfterDelay(8, () -> {
+            bot.executor.pause(bot.context); // what a reflex does; the controller resumes it on its next tick
+            bot.player.stopUsingItem();
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(events(bot).contains("finished: eat"), "eat did not finish: " + events(bot));
+            helper.assertTrue(InventoryOps.count(bot.player, s -> s.is(Items.BREAD)) == 1, "bread count should be 1");
+            removeBot(manager[0], "TestEatResume");
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void reflexEatDoesNotCountChorusFruitAsFood(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestChorus");
+        bot.player.getInventory().setItem(0, new ItemStack(Items.CHORUS_FRUIT, 4));
+        boolean food = ReflexEat.hasFood(bot.player);
+        removeBot(manager[0], "TestChorus");
+        helper.assertTrue(!food, "chorus fruit teleports the eater; the eat reflex must not pick it");
+        helper.succeed();
+    }
+
+    /** A goTo that just finished leaves the navigator "arrived"; smelt must still walk to a furnace out of reach. */
+    @GameTest(maxTicks = 800)
+    public void smeltWalksToAFarFurnaceAfterAGoTo(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestSmeltFar");
+        helper.setBlock(7, 1, 7, Blocks.FURNACE); // about 10 blocks from the corner the bot walks to first
+        bot.player.getInventory().setItem(0, new ItemStack(Items.RAW_IRON, 1));
+        bot.player.getInventory().setItem(1, new ItemStack(Items.COAL, 1));
+        BlockPos here = helper.absolutePos(new BlockPos(0, 1, 0));
+        bot.executor.replace(List.of(new GoToAction(here.getX(), here.getY(), here.getZ()), new SmeltAction("iron_ingot", 1)), bot.context);
+        helper.runAfterDelay(799, () -> {
+            if (manager[0].bot("TestSmeltFar").isPresent()) removeBot(manager[0], "TestSmeltFar");
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(!events(bot).contains("failed"), "smelt failed: " + events(bot));
+            helper.assertTrue(events(bot).contains("smelted 1 iron_ingot"), "smelt did not finish: " + events(bot));
+            helper.assertTrue(InventoryOps.has(bot.player, Items.IRON_INGOT, 1), "no iron ingot held");
+            removeBot(manager[0], "TestSmeltFar");
+        });
+    }
+
+    /** Cancelling a smelt while the furnace is out of reach leaves the items in it; nothing is pulled back from afar. */
+    @GameTest(maxTicks = 300)
+    public void cancelledSmeltLeavesItemsInAFurnaceOutOfReach(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestSmeltAway");
+        BlockPos furnacePos = new BlockPos(1, 1, 1);
+        helper.setBlock(furnacePos, Blocks.FURNACE);
+        bot.player.getInventory().setItem(0, new ItemStack(Items.RAW_IRON, 3));
+        bot.player.getInventory().setItem(1, new ItemStack(Items.COAL, 2));
+        bot.executor.replace(List.of(new SmeltAction("iron_ingot", 3)), bot.context);
+        boolean[] stopped = {false};
+        helper.runAfterDelay(299, () -> {
+            if (manager[0].bot("TestSmeltAway").isPresent()) removeBot(manager[0], "TestSmeltAway");
+        });
+        helper.succeedWhen(() -> {
+            AbstractFurnaceBlockEntity be = helper.getBlockEntity(furnacePos, AbstractFurnaceBlockEntity.class);
+            if (!stopped[0]) {
+                helper.assertTrue(!be.getItem(0).isEmpty(), "the furnace is not loaded yet");
+                bot.player.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(7.5, 1, 7.5)), 0.0F);
+                bot.executor.stop(bot.context);
+                stopped[0] = true;
+            }
+            int inFurnace = be.getItem(0).getCount() + be.getItem(2).getCount();
+            helper.assertTrue(inFurnace == 3, "the furnace holds " + inFurnace + " of the 3 items");
+            helper.assertTrue(!InventoryOps.has(bot.player, Items.RAW_IRON, 1) && !InventoryOps.has(bot.player, Items.IRON_INGOT, 1),
+                    "items were pulled back from a furnace 9 blocks away");
+            removeBot(manager[0], "TestSmeltAway");
         });
     }
 

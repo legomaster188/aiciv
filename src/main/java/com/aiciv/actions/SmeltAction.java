@@ -10,6 +10,7 @@ import com.aiciv.nav.Pos;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.world.BlockPlacer;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.Sight;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -53,6 +54,8 @@ public final class SmeltAction implements Action {
     private BlockPos furnace;
     private CraftAction crafter;
     private boolean loaded;
+    /** Whether this action started the walk to the furnace; until then the navigator's status is a previous action's. */
+    private boolean walking;
     private int taken;
     private String doneSummary;
 
@@ -204,14 +207,21 @@ public final class SmeltAction implements Action {
         return best;
     }
 
+    /** Close enough to use the furnace, and able to see it: no reaching into a furnace behind a wall. */
     private boolean inReach(AiPlayer player) {
-        return player.getEyePosition().distanceToSqr(Vec3.atCenterOf(furnace)) <= REACH * REACH;
+        return player.getEyePosition().distanceToSqr(Vec3.atCenterOf(furnace)) <= REACH * REACH && Sight.canSee(player, furnace);
     }
 
     private ActionStatus reach(BotContext ctx, AiPlayer player) {
         if (inReach(player)) {
             ctx.navigator().stop();
+            walking = false;
             phase = Phase.RUN;
+            return ActionStatus.RUNNING;
+        }
+        if (!walking) {
+            walking = true;
+            ctx.navigator().goTo(new NearGoal(furnace.getX() + 0.5, furnace.getY() + 0.5, furnace.getZ() + 0.5, STAND_RADIUS));
             return ActionStatus.RUNNING;
         }
         NavStatus nav = ctx.navigator().status();
@@ -221,7 +231,7 @@ public final class SmeltAction implements Action {
             case FAILED:
                 return ActionStatus.failed("cannot reach the furnace: " + nav.reason());
             case ARRIVED:
-                return ActionStatus.failed("cannot get within reach of the furnace at " + furnace.getX() + " " + furnace.getY() + " " + furnace.getZ());
+                return ActionStatus.failed("cannot get within reach and sight of the furnace at " + furnace.getX() + " " + furnace.getY() + " " + furnace.getZ());
             default:
                 ctx.navigator().goTo(new NearGoal(furnace.getX() + 0.5, furnace.getY() + 0.5, furnace.getZ() + 0.5, STAND_RADIUS));
                 return ActionStatus.RUNNING;
@@ -237,6 +247,7 @@ public final class SmeltAction implements Action {
         }
         if (!inReach(player)) {
             phase = Phase.REACH;
+            walking = false;
             return ActionStatus.RUNNING;
         }
         if (!loaded) {
@@ -370,9 +381,14 @@ public final class SmeltAction implements Action {
     public void cancel(BotContext ctx) {
         ctx.navigator().stop();
         AiPlayer player = ctx.player();
-        if (loaded && furnace != null && player.level().getBlockEntity(furnace) instanceof AbstractFurnaceBlockEntity be) {
-            giveBack(player, be);
-        }
+        // A dead bot, or one too far away to open the furnace, leaves its items in it; they can be fetched later.
+        if (!loaded || furnace == null || player.isDeadOrDying() || !inReach(player)) return;
+        if (player.level().getBlockEntity(furnace) instanceof AbstractFurnaceBlockEntity be) giveBack(player, be);
+    }
+
+    @Override
+    public void interrupted(BotContext ctx) {
+        walking = false; // the reflex stopped the walk; start it again from wherever the bot ends up
     }
 
     @Override

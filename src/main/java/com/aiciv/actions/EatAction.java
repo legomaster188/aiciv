@@ -59,6 +59,14 @@ public final class EatAction implements Action {
         return best;
     }
 
+    /** A reflex stopped the meal halfway; start it again (vanilla only takes the food once a meal finishes). */
+    @Override
+    public void interrupted(BotContext ctx) {
+        AiPlayer player = ctx.player();
+        if (started && player != null && InventoryOps.count(player, s -> s.is(food)) < before) return; // already eaten
+        started = false;
+    }
+
     @Override
     public void cancel(BotContext ctx) {
         AiPlayer player = ctx.player();

@@ -17,7 +17,7 @@ import net.minecraft.world.item.Items;
 /** Eats the most filling safe food the bot carries, holding the use key until the meal is finished. */
 public final class ReflexEat implements Action {
     private static final Set<Item> HARMFUL = Set.of(Items.ROTTEN_FLESH, Items.SPIDER_EYE, Items.POISONOUS_POTATO,
-            Items.PUFFERFISH, Items.SUSPICIOUS_STEW);
+            Items.PUFFERFISH, Items.SUSPICIOUS_STEW, Items.CHORUS_FRUIT); // the same foods EatAction avoids
 
     private boolean started;
     private int foodBefore;
@@ -46,8 +46,8 @@ public final class ReflexEat implements Action {
             ate = BuiltInRegistries.ITEM.getKey(held.getItem()).getPath();
             started = true;
             p.gameMode.useItem(p, p.level(), held, InteractionHand.MAIN_HAND);
-            if (!p.isUsingItem()) p.startUsingItem(InteractionHand.MAIN_HAND);
-            return ActionStatus.RUNNING;
+            // Vanilla decides whether this can be eaten now; never force a meal it refused.
+            return p.isUsingItem() ? ActionStatus.RUNNING : ActionStatus.failed("could not start eating " + ate);
         }
         if (p.isUsingItem()) return ActionStatus.RUNNING;
         boolean finished = p.getFoodData().getFoodLevel() > foodBefore || p.getMainHandItem().getCount() < countBefore;
