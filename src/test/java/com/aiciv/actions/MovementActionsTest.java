@@ -99,6 +99,20 @@ class MovementActionsTest {
     }
 
     @Test
+    void goToPlayerKeepsWalkingWhenThePlayerWandersAndTheBotIsStillFar() {
+        ctx.players.put("Steve", new Vec3(20.5, 64, 0.5));
+        GoToPlayerAction a = new GoToPlayerAction("Steve");
+        assertEquals(ActionStatus.RUNNING, a.tick(ctx));
+        ctx.players.put("Steve", new Vec3(23.4, 64, 0.5));
+        ctx.position = new Vec3(18.0, 64, 0.5);
+        ctx.navigator.status = NavStatus.ARRIVED;
+        assertEquals(ActionStatus.RUNNING, a.tick(ctx));
+        assertEquals(2, ctx.navigator.goals.size());
+        NearGoal again = assertInstanceOf(NearGoal.class, ctx.navigator.goals.get(1));
+        assertEquals(23.4, again.x());
+    }
+
+    @Test
     void sayTalksOnce() {
         assertEquals(ActionStatus.DONE, new SayAction("hello").tick(ctx));
         assertEquals(java.util.List.of("hello"), ctx.said);
