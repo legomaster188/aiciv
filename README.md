@@ -113,9 +113,33 @@ In singleplayer, `/ai` needs cheats enabled for the world.
 | `/ai pause [name\|all]`, `/ai resume [name\|all]` | Stops or restarts thinking and acting |
 | `/ai status <name>` | Details for one AI player |
 | `/ai budget` | Requests used and left per provider, and provider health |
+| `/ai model <name> <model>` | Switches an AI player to another configured model |
+| `/ai panel` | Prints the clickable link to the admin panel (only you see it) |
 | `/ai reload` | Re-reads `aiciv.json` and `keys.json` |
 
 AI players notice chat within 64 blocks, and any chat that names them from anywhere.
+
+## Admin panel
+
+While a world is running, AiCiv serves a local control page at `http://localhost:8765/`. Run `/ai panel`
+in game and click the link it prints; the link carries an access token that changes each time the server starts. The page shows every AI
+player live (model, health, food, position, current action, last thought or Jev probabilities), lets you
+spawn, remove, pause, resume, change model, set a goal or make a bot say something, reload the config,
+and shows each bot's decision feed when you click its card. The layout suits a second monitor and narrow
+windows alike.
+
+Configure it in `aiciv.json` (the default if the block is missing):
+
+```json
+"panel": { "enabled": true, "port": 8765 }
+```
+
+Security: it listens on 127.0.0.1 only, never on the network. Every API call needs the token, which is
+random per server start, lives in the link's `#` fragment (never sent to the server or logged) and is
+printed only to the operator who runs `/ai panel`. Requests with a foreign `Origin` or `Host` are
+refused. The panel never shows API keys. If the port is taken the server log says so and AiCiv carries on
+without the panel; change `panel.port` and restart. Changes made in the panel run on the server thread
+exactly like the matching `/ai` commands.
 
 ## Logs
 

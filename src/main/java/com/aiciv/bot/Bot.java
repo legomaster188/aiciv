@@ -27,6 +27,11 @@ public final class Bot {
 
     record Death(String message, int x, int y, int z) {}
 
+    /** True between a death and the respawn on the next tick. */
+    public boolean dead() {
+        return death != null || player.isDeadOrDying();
+    }
+
     Bot(String name, AiPlayer player, BotBrain brain, ActionExecutor executor, LevelNavigator navigator,
         BlockBreaker breaker) {
         this.name = name;

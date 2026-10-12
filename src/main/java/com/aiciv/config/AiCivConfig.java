@@ -30,6 +30,13 @@ public final class AiCivConfig {
     public int maxNotes = 20;
     public int eventWindow = 10;
     public int maxActionsPerDecision = 6;
+    public PanelConfig panel = new PanelConfig();
+
+    /** The local web admin panel. Needs a restart to change. */
+    public static final class PanelConfig {
+        public boolean enabled = true;
+        public int port = 8765;
+    }
 
     public static final class ProviderConfig {
         /** "openai" for any OpenAI-compatible HTTP API, "typesafe" for a TypeSafe (Jev) decision API, "scripted" for canned replies. */
@@ -109,6 +116,7 @@ public final class AiCivConfig {
         if (c == null) throw new IOException(file + " is empty");
         if (c.providers == null) c.providers = new LinkedHashMap<>();
         if (c.models == null) c.models = new LinkedHashMap<>();
+        if (c.panel == null) c.panel = new PanelConfig();
         for (ModelConfig m : c.models.values()) {
             if (m.extra == null) m.extra = new JsonObject();
             if (m.decisionMode == null) m.decisionMode = "tools";
@@ -157,6 +165,9 @@ public final class AiCivConfig {
                 problems.add("model '" + key + "' decides with tools, but its fallback '" + typesafe + "' uses typesafe provider '"
                         + models.get(typesafe).provider + "', which only picks from menus");
             }
+        }
+        if (panel != null && panel.enabled && (panel.port < 1 || panel.port > 65535)) {
+            problems.add("panel.port " + panel.port + " is not a valid port (1-65535)");
         }
         if (!models.containsKey(defaultModel)) {
             problems.add("defaultModel '" + defaultModel + "' is not a configured model");

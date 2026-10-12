@@ -6,6 +6,7 @@ import com.aiciv.brain.DecisionLog;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.config.KeyStore;
 import com.aiciv.llm.LlmService;
+import com.aiciv.panel.PanelServer;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -27,6 +28,7 @@ public final class AiCiv implements ModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
 
     private static volatile BotManager manager;
+    private static volatile PanelServer panel;
     private static Path configDir;
     private static volatile MinecraftServer server;
 
@@ -49,6 +51,8 @@ public final class AiCiv implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(s -> {
             BotManager m = manager;
             if (m != null) m.tickEnd();
+            PanelServer p = panel;
+            if (p != null) p.tick();
         });
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             BotManager m = manager;
@@ -90,12 +94,31 @@ public final class AiCiv implements ModInitializer {
         DecisionLog log = new DecisionLog(FabricLoader.getInstance().getGameDir().resolve("logs").resolve("aiciv"));
         manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC());
         manager.restoreAll();
+        startPanel(server, l.config());
         return l.config().validate();
+    }
+
+    /** The running admin panel, or null when it is disabled or could not bind its port. */
+    public static PanelServer panel() {
+        return panel;
+    }
+
+    private static void startPanel(MinecraftServer server, AiCivConfig config) {
+        if (!config.panel.enabled || panel != null) return;
+        try {
+            panel = PanelServer.start(server, manager, config.panel.port, AiCiv::reload);
+            LOG.info("AiCiv panel at {} (use /ai panel for the link)", panel.baseUrl());
+        } catch (IOException | RuntimeException e) {
+            LOG.warn("AiCiv panel could not start on port {}: {}", config.panel.port, e.toString());
+        }
     }
 
     private static void stop() {
         BotManager m = manager;
         manager = null;
+        PanelServer p = panel;
+        panel = null;
+        if (p != null) p.stop();
         server = null;
         if (m != null) m.shutdown();
     }

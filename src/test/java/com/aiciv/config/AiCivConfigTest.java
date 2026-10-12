@@ -130,4 +130,28 @@ class AiCivConfigTest {
         assertEquals(List.of("model 'tools-chat' decides with tools, but its fallback 'jev' uses typesafe provider 'jev',"
                 + " which only picks from menus"), problems);
     }
+
+    @Test
+    void panelIsOnAtPort8765WhenTheBlockIsMissingOrNull() throws Exception {
+        assertTrue(AiCivConfig.defaults().panel.enabled);
+        assertEquals(8765, AiCivConfig.defaults().panel.port);
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, "{\"defaultModel\": \"x\"}");
+        assertEquals(8765, AiCivConfig.loadOrCreate(file).panel.port);
+        Files.writeString(file, "{\"panel\": null}");
+        assertTrue(AiCivConfig.loadOrCreate(file).panel.enabled);
+        Files.writeString(file, "{\"panel\": {\"enabled\": false, \"port\": 9000}}");
+        AiCivConfig c = AiCivConfig.loadOrCreate(file);
+        assertFalse(c.panel.enabled);
+        assertEquals(9000, c.panel.port);
+    }
+
+    @Test
+    void validateRejectsABadPanelPortOnlyWhenEnabled() throws Exception {
+        AiCivConfig c = AiCivConfig.defaults();
+        c.panel.port = 70000;
+        assertEquals(List.of("panel.port 70000 is not a valid port (1-65535)"), c.validate());
+        c.panel.enabled = false;
+        assertEquals(List.of(), c.validate());
+    }
 }
