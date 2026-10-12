@@ -39,6 +39,11 @@ public final class CollectAction implements Action {
     }
 
     @Override
+    public void interrupted(BotContext ctx) {
+        gatherer.stop(ctx);
+    }
+
+    @Override
     public void cancel(BotContext ctx) {
         gatherer.stop(ctx);
     }

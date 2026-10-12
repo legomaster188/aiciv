@@ -261,6 +261,7 @@ public final class BotManager {
         for (Bot b : List.copyOf(bots.values())) {
             try {
                 if (b.player.isDeadOrDying() || b.brain.paused()) continue;
+                b.reflexes.tick(b);
                 b.navigator.tick();
                 String ended = b.executor.tick(b.context);
                 if (ended != null) b.brain.actionsEnded(stamp(), ended);

@@ -52,6 +52,11 @@ public final class GoToAction implements Action {
     }
 
     @Override
+    public void interrupted(BotContext ctx) {
+        started = false; // the next tick starts a new leg from wherever the bot ended up
+    }
+
+    @Override
     public void cancel(BotContext ctx) {
         ctx.navigator().stop();
     }

@@ -664,14 +664,14 @@ public final class AiCivGameTests {
         });
     }
 
-    private static Bot actionBot(GameTestHelper helper, BotManager[] manager, String name, Vec3 start) throws Exception {
+    static Bot actionBot(GameTestHelper helper, BotManager[] manager, String name, Vec3 start) throws Exception {
         manager[0] = scriptedManager(helper, new ScriptedBackend(List.of()), Files.createTempDirectory("aiciv-gametest"));
         Bot bot = manager[0].spawn(name, "scripted", "", helper.getLevel(), helper.absoluteVec(start));
         helper.onEachTick(manager[0]::tickStart);
         return bot;
     }
 
-    private static void removeBot(BotManager manager, String name) {
+    static void removeBot(BotManager manager, String name) {
         try {
             manager.remove(name);
         } catch (com.aiciv.bot.BotException e) {
@@ -679,7 +679,7 @@ public final class AiCivGameTests {
         }
     }
 
-    private static String events(Bot bot) {
+    static String events(Bot bot) {
         return String.join("\n", bot.brain.events().lines());
     }
 
