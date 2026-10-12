@@ -40,7 +40,8 @@ public final class FollowAction implements Action {
         if (anchor != null && s.state() == NavStatus.State.FAILED) {
             return ActionStatus.failed("can't reach " + name + ": " + s.reason());
         }
-        if (anchor == null || anchor.distanceTo(t) > CLOSE || s.state() != NavStatus.State.RUNNING) {
+        // An arrived navigator stays put until the player moves away from the anchor, so it is not re-issued each tick.
+        if (anchor == null || anchor.distanceTo(t) > CLOSE || s.state() == NavStatus.State.IDLE) {
             anchor = t;
             ctx.navigator().goTo(new NearGoal(t.x, t.y, t.z, CLOSE - 0.5));
         }

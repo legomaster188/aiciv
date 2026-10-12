@@ -68,6 +68,22 @@ class PathSearchTest {
     }
 
     @Test
+    void neverEntersLavaWhenADetourExists() {
+        GridView g = new GridView().floor(0, 6, 0, 0, 2).lava(3, 1, 1);
+        PathSearch s = run(g, new Pos(0, 1, 1), at(6, 1, 1));
+        assertEquals(PathSearch.State.FOUND, s.state());
+        assertFalse(s.path().contains(new Pos(3, 1, 1)), s.path().toString());
+    }
+
+    @Test
+    void magmaFloorInANarrowCorridorIsNoRoute() {
+        GridView g = new GridView().floor(0, 6, 0, 1, 1).magma(3, 0, 1);
+        PathSearch s = run(g, new Pos(0, 1, 1), at(6, 1, 1));
+        assertEquals(PathSearch.State.FAILED, s.state());
+        assertEquals("no path", s.failure());
+    }
+
+    @Test
     void unreachableGoalStopsAtTheNodeCap() {
         GridView g = new GridView().floor(-100, 100, 0, -100, 100);
         PathSearch s = new PathSearch(g, new Pos(0, 1, 0), at(0, 50, 0), 1000);

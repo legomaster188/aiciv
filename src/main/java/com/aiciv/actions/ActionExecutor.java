@@ -39,10 +39,10 @@ public final class ActionExecutor {
             ticksOnCurrent = 0;
             if (current == null) return null;
         }
-        ActionStatus status = current.tick(ctx);
+        ActionStatus status = guardedTick(current, ctx);
         ticksOnCurrent++;
         if (status.state() == ActionStatus.State.RUNNING && ticksOnCurrent >= current.timeoutTicks()) {
-            current.cancel(ctx);
+            cancelQuietly(current, ctx);
             status = ActionStatus.failed("timed out");
         }
         switch (status.state()) {
@@ -68,6 +68,25 @@ public final class ActionExecutor {
                 finished.clear();
                 return summary.toString();
             }
+        }
+    }
+
+    /** An action that throws fails instead of rethrowing into the server tick on every later tick. */
+    private static ActionStatus guardedTick(Action action, BotContext ctx) {
+        try {
+            return action.tick(ctx);
+        } catch (RuntimeException ex) {
+            cancelQuietly(action, ctx);
+            String message = ex.getMessage();
+            return ActionStatus.failed(ex.getClass().getSimpleName() + (message == null ? "" : ": " + message));
+        }
+    }
+
+    private static void cancelQuietly(Action action, BotContext ctx) {
+        try {
+            action.cancel(ctx);
+        } catch (RuntimeException ignored) {
+            // The action is dropped either way, so a broken cancel must not break the tick.
         }
     }
 }

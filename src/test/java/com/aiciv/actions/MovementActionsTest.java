@@ -75,6 +75,30 @@ class MovementActionsTest {
     }
 
     @Test
+    void goToPlayerStopsWhenTheNavigatorArrivesJustOutOfRange() {
+        ctx.players.put("Steve", new Vec3(20.5, 64, 0.5));
+        GoToPlayerAction a = new GoToPlayerAction("Steve");
+        assertEquals(ActionStatus.RUNNING, a.tick(ctx));
+        ctx.position = new Vec3(17.1, 64, 0.5);
+        ctx.navigator.status = NavStatus.ARRIVED;
+        assertEquals(ActionStatus.DONE, a.tick(ctx));
+        assertEquals(1, ctx.navigator.goals.size());
+        assertEquals(1, ctx.navigator.stops);
+    }
+
+    @Test
+    void followDoesNotReissueWhenTheNavigatorArrivesJustOutOfRange() {
+        ctx.players.put("Steve", new Vec3(20.5, 64, 0.5));
+        FollowAction a = new FollowAction("Steve", 10);
+        assertEquals(ActionStatus.RUNNING, a.tick(ctx));
+        assertEquals(1, ctx.navigator.goals.size());
+        ctx.position = new Vec3(17.1, 64, 0.5);
+        ctx.navigator.status = NavStatus.ARRIVED;
+        assertEquals(ActionStatus.RUNNING, a.tick(ctx));
+        assertEquals(1, ctx.navigator.goals.size());
+    }
+
+    @Test
     void sayTalksOnce() {
         assertEquals(ActionStatus.DONE, new SayAction("hello").tick(ctx));
         assertEquals(java.util.List.of("hello"), ctx.said);

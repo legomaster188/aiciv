@@ -69,6 +69,43 @@ class ActionExecutorTest {
         assertEquals("finished: second", ex.tick(ctx));
     }
 
+    /** An action whose tick throws, and optionally whose cancel throws too. */
+    static final class Throwing implements Action {
+        final boolean cancelThrows;
+        int cancels;
+
+        Throwing(boolean cancelThrows) {
+            this.cancelThrows = cancelThrows;
+        }
+
+        @Override public ActionStatus tick(BotContext ctx) { throw new IllegalStateException("kaboom"); }
+        @Override public String describe() { return "boom"; }
+        @Override public int timeoutTicks() { return 100; }
+        @Override public void cancel(BotContext ctx) {
+            cancels++;
+            if (cancelThrows) throw new IllegalStateException("cancel broke");
+        }
+    }
+
+    @Test
+    void throwingActionFailsAndSkipsTheRest() {
+        Throwing boom = new Throwing(false);
+        ex.replace(List.of(boom, new Scripted("b", 100, ActionStatus.DONE)), ctx);
+        assertEquals("failed: boom: IllegalStateException: kaboom (skipped: b)", ex.tick(ctx));
+        assertFalse(ex.busy());
+        assertNull(ex.tick(ctx));
+        assertEquals(1, boom.cancels);
+    }
+
+    @Test
+    void throwingCancelDoesNotEscapeTheTick() {
+        Throwing boom = new Throwing(true);
+        ex.replace(List.of(boom), ctx);
+        assertEquals("failed: boom: IllegalStateException: kaboom", ex.tick(ctx));
+        assertFalse(ex.busy());
+        assertEquals(1, boom.cancels);
+    }
+
     @Test
     void stopClearsEverything() {
         Scripted a = new Scripted("a", 100);

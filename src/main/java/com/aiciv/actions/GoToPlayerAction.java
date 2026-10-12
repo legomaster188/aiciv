@@ -27,6 +27,12 @@ public final class GoToPlayerAction implements Action {
         if (anchor != null && s.state() == NavStatus.State.FAILED) {
             return ActionStatus.failed("can't reach " + name + ": " + s.reason());
         }
+        if (anchor != null && s.state() == NavStatus.State.ARRIVED && anchor.distanceTo(t) <= ARRIVE) {
+            // The goal sits at the block centre, so the bot can arrive a little outside the 3-block margin.
+            // The player has not moved, so re-issuing the same goal would only arrive again until the timeout.
+            ctx.navigator().stop();
+            return ActionStatus.DONE;
+        }
         if (anchor == null || anchor.distanceTo(t) > ARRIVE || s.state() != NavStatus.State.RUNNING) {
             anchor = t;
             ctx.navigator().goTo(new NearGoal(t.x, t.y, t.z, ARRIVE - 0.5));
