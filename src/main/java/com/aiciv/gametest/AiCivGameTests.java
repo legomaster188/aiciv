@@ -12,11 +12,14 @@ import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
+import com.aiciv.nav.Pos;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.perception.SnapshotFormatter;
 import com.aiciv.world.BlockBreaker;
+import com.aiciv.world.BlockNames;
 import com.aiciv.world.BlockPlacer;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.KnownBlocks;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.file.Files;
@@ -34,6 +37,7 @@ import net.minecraft.network.protocol.game.ClientboundBlockDestructionPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -142,6 +146,49 @@ public final class AiCivGameTests {
             helper.assertTrue(text.contains("crafting_table"), "snapshot misses the crafting table:\n" + text);
             helper.assertTrue(!text.contains("diamond_ore"), "snapshot shows a buried ore:\n" + text);
             helper.assertTrue(!text.contains("lava"), "snapshot shows enclosed lava:\n" + text);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void perceiverRemembersAndForgetsBlocksAndShowsGear(GameTestHelper helper) {
+        stoneFloor(helper);
+        helper.setBlock(3, 1, 3, Blocks.IRON_ORE);
+        helper.setBlock(1, 1, 6, Blocks.DEEPSLATE_IRON_ORE);
+        helper.setBlock(5, 1, 5, Blocks.OAK_LOG);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestRemember", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)), 0.0F);
+        bot.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.IRON_CHESTPLATE));
+        bot.setItemSlot(EquipmentSlot.OFFHAND, new ItemStack(Items.SHIELD));
+        KnownBlocks known = new KnownBlocks(128);
+        BlockPos ore = helper.absolutePos(new BlockPos(3, 1, 3));
+        Pos orePos = new Pos(ore.getX(), ore.getY(), ore.getZ());
+        Pos far = new Pos(ore.getX() + 200, 40, ore.getZ());
+        known.see("diamond_ore", far, 0);
+        helper.runAfterDelay(5, () -> {
+            String first = SnapshotFormatter.format(
+                    Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known), SnapshotFormatter.MAX_CHARS);
+            boolean cachedOre = known.nearest(l -> l.equals("iron_ore"), orePos).equals(java.util.Optional.of(orePos));
+            boolean cachedDeepslate = known.nearest(l -> l.equals("deepslate_iron_ore"), orePos).isPresent();
+            boolean cachedLog = known.nearest(l -> l.equals("oak_log"), orePos).isPresent();
+            List<Map.Entry<Pos, String>> ironNearby = Perceiver.exposedBlocks(helper.getLevel(), bot.blockPosition(), 8,
+                    BlockNames.matcher("iron"));
+            // Mine the ore away: the next snapshot must forget it, while the far diamond stays remembered.
+            helper.getLevel().setBlock(ore, Blocks.AIR.defaultBlockState(), 3);
+            String second = SnapshotFormatter.format(
+                    Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known), SnapshotFormatter.MAX_CHARS);
+            boolean forgotOre = known.nearest(l -> l.equals("iron_ore"), orePos).isEmpty();
+            boolean keptFar = known.nearest(l -> l.equals("diamond_ore"), orePos).isPresent();
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(first.contains("Wearing: iron_chestplate, shield"), first);
+            helper.assertTrue(first.contains("Remembered: diamond_ore at " + far.x() + " 40 " + far.z()), first);
+            helper.assertTrue(cachedOre && cachedDeepslate && cachedLog, "scan did not cache the ore, deepslate ore and log:\n" + first);
+            helper.assertTrue(ironNearby.size() == 2 && ironNearby.get(0).getValue().equals("iron_ore"),
+                    "exposedBlocks should list the plain iron ore first, then the deepslate one: " + ironNearby);
+            helper.assertTrue(forgotOre, "the mined ore is still remembered");
+            helper.assertTrue(keptFar, "a far-away entry outside the scan was forgotten");
+            helper.assertTrue(!second.contains("iron_ore x") && second.contains("Remembered: diamond_ore"), second);
             helper.succeed();
         });
     }

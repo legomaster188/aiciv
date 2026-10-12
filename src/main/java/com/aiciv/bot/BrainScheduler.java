@@ -89,7 +89,7 @@ final class BrainScheduler {
 
     private boolean think(Bot b, ThinkQueue.Ticket ticket, long now) {
         String snapshot = SnapshotFormatter.format(
-                Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer),
+                Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks),
                 SnapshotFormatter.MAX_CHARS);
         String system = PromptBuilder.system(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b),
                 m.config().maxActionsPerDecision, ToolCatalog.guide());

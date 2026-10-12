@@ -15,8 +15,9 @@ public final class SnapshotFormatter {
                 new ArrayList<>(s.inventory()),
                 sightings(s.blocks()),
                 sightings(s.players()),
-                sightings(s.mobs()));
-        int[] dropped = new int[4];
+                sightings(s.mobs()),
+                new ArrayList<>(s.remembered()));
+        int[] dropped = new int[lists.size()];
         String text = render(s, lists, dropped);
         while (text.length() > maxChars) {
             int longest = -1;
@@ -45,11 +46,13 @@ public final class SnapshotFormatter {
     private static String render(SnapshotData s, List<List<String>> lists, int[] dropped) {
         return String.format(Locale.ROOT, "You: %s | pos %d %d %d | hp %d/%d food %d/20 | day %d, %s | biome %s",
                         s.name(), s.x(), s.y(), s.z(), s.health(), s.maxHealth(), s.food(), s.day(), s.timeOfDay(), s.biome())
-                + "\nHolding: " + s.holding() + "\n"
+                + "\nHolding: " + s.holding()
+                + "\nWearing: " + s.equipment() + "\n"
                 + "Inventory: " + join(lists.get(0), dropped[0], "empty") + "\n"
                 + "Blocks nearby: " + join(lists.get(1), dropped[1], "nothing notable") + "\n"
                 + "Players nearby: " + join(lists.get(2), dropped[2], "nobody") + "\n"
                 + "Mobs nearby: " + join(lists.get(3), dropped[3], "none") + "\n"
+                + "Remembered: " + join(lists.get(4), dropped[4], "nothing") + "\n"
                 + "Current action: " + s.currentAction() + " (last: " + s.lastResult() + ")";
     }
 
