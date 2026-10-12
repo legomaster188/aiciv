@@ -1,6 +1,7 @@
 package com.aiciv.bot;
 
 import com.aiciv.actions.BotContext;
+import com.aiciv.actions.PlayerNames;
 import com.aiciv.nav.Navigator;
 import java.util.Optional;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,7 +23,7 @@ final class LiveContext implements BotContext {
 
     @Override
     public Optional<Vec3> playerPosition(String name) {
-        ServerPlayer p = bot.player.level().getServer().getPlayerList().getPlayerByName(name);
+        ServerPlayer p = bot.player.level().getServer().getPlayerList().getPlayerByName(PlayerNames.clean(name));
         if (p == null || p.level() != bot.player.level() || p.isSpectator()) return Optional.empty();
         return Optional.of(p.position());
     }

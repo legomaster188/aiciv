@@ -8,6 +8,8 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.Vec3;
 
 /** A server-side player with no client. It runs its own physics every tick. */
@@ -30,6 +32,8 @@ public final class AiPlayer extends ServerPlayer {
         server.getPlayerList().placeNewPlayer(connection, player, cookie);
         // The listener's constructor assigns player.connection, replacing the vanilla listener.
         new FakeGamePacketListener(server, connection, player, cookie, onDisconnect);
+        // The default ClientInformation shows no skin layers (hat, jacket, sleeves); a real client sends all seven.
+        player.getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, (byte) 0x7F);
         return player;
     }
 
@@ -41,6 +45,18 @@ public final class AiPlayer extends ServerPlayer {
         xxa = 0.0F;
         zza = 0.0F;
         setJumping(false);
+    }
+
+    /**
+     * A cross-dimension teleport leaves isChangingDimension set until the client acknowledges it, which a
+     * fake player never does; meanwhile the player takes no damage and uses no portals.
+     */
+    @Override
+    public ServerPlayer teleport(TeleportTransition transition) {
+        Level before = level();
+        ServerPlayer moved = super.teleport(transition);
+        if (moved != null && moved.level() != before) hasChangedDimension();
+        return moved;
     }
 
     @Override

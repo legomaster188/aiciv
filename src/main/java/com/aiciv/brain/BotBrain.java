@@ -14,8 +14,8 @@ public final class BotBrain {
     private String modelKey;
     private boolean paused;
     private final EventLog events;
-    private final long idleMillis;
-    private final long mentionCooldownMillis;
+    private long idleMillis;
+    private long mentionCooldownMillis;
     private WakeReason pending;
     private long lastDecisionMillis;
     private long lastMentionWakeMillis = Long.MIN_VALUE / 2;
@@ -109,4 +109,11 @@ public final class BotBrain {
     public void setGoal(String goal) { this.goal = goal; }
     public void setModelKey(String modelKey) { this.modelKey = modelKey; }
     public void setPaused(boolean paused) { this.paused = paused; }
+
+    /** Applies reloaded config to a running bot. */
+    public void setTiming(long idleMillis, long mentionCooldownMillis, int eventWindow) {
+        this.idleMillis = idleMillis;
+        this.mentionCooldownMillis = mentionCooldownMillis;
+        events.setCapacity(eventWindow);
+    }
 }

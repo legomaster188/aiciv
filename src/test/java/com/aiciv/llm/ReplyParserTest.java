@@ -121,4 +121,17 @@ class ReplyParserTest {
     void missingChoicesThrow() {
         assertThrows(ReplyFormatException.class, () -> ReplyParser.parse(new JsonObject()));
     }
+
+    @Test
+    void carriesFinishReasonAndUsage() throws Exception {
+        LlmReply r = ReplyParser.parse(JsonParser.parseString("""
+            {"choices": [{"finish_reason": "length", "message": {"content": null}}],
+             "usage": {"completion_tokens": 1000}}""").getAsJsonObject());
+        assertEquals("length", r.finishReason());
+        assertEquals(1000, r.usage().get("completion_tokens").getAsInt());
+        assertTrue(r.calls().isEmpty());
+        LlmReply plain = ReplyParser.parse(response("{\"content\": \"hi\"}"));
+        assertNull(plain.finishReason());
+        assertNull(plain.usage());
+    }
 }

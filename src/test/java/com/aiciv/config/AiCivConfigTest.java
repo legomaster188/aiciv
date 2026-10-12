@@ -18,6 +18,8 @@ class AiCivConfigTest {
         assertEquals("gemini-flash", c.defaultModel);
         assertEquals("gemini", c.models.get("gemini-flash").provider);
         assertEquals("groq-llama", c.models.get("gemini-flash").fallback);
+        assertEquals(4096, c.models.get("gemini-flash").maxTokens);
+        assertEquals(1000, c.models.get("groq-llama").maxTokens);
         assertNull(c.providers.get("ollama").key);
         assertEquals(java.util.List.of(), c.validate());
         assertEquals(c.defaultModel, AiCivConfig.loadOrCreate(file).defaultModel);

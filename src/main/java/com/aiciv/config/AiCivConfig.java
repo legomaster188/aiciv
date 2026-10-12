@@ -78,7 +78,9 @@ public final class AiCivConfig {
         c.providers.put("groq", new ProviderConfig("https://api.groq.com/openai/v1", "groq", 30, 1000, "UTC", 2));
         c.providers.put("opencode", new ProviderConfig("https://opencode.ai/zen/v1", "opencode", 10, 500, "UTC", 2));
         c.providers.put("ollama", new ProviderConfig("http://localhost:11434/v1", null, 0, 0, "UTC", 1));
-        c.models.put("gemini-flash", new ModelConfig("gemini", "gemini-2.5-flash", "groq-llama"));
+        ModelConfig gemini = new ModelConfig("gemini", "gemini-2.5-flash", "groq-llama");
+        gemini.maxTokens = 4096; // thinking tokens count against max_tokens; free tiers count requests, not tokens
+        c.models.put("gemini-flash", gemini);
         c.models.put("groq-llama", new ModelConfig("groq", "llama-3.3-70b-versatile", null));
         c.models.put("opencode-free", new ModelConfig("opencode", "big-pickle", null));
         c.models.put("ollama-local", new ModelConfig("ollama", "llama3.2", null));

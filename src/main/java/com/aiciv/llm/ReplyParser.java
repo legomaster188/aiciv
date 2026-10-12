@@ -22,6 +22,10 @@ public final class ReplyParser {
         JsonElement msgEl = first.isJsonObject() ? first.getAsJsonObject().get("message") : null;
         if (msgEl == null || !msgEl.isJsonObject()) throw new ReplyFormatException("reply had no message");
         JsonObject msg = msgEl.getAsJsonObject();
+        JsonElement finish = first.getAsJsonObject().get("finish_reason");
+        String finishReason = finish != null && finish.isJsonPrimitive() ? finish.getAsString() : null;
+        JsonElement usageEl = response.get("usage");
+        JsonObject usage = usageEl != null && usageEl.isJsonObject() ? usageEl.getAsJsonObject() : null;
 
         String content = contentText(msg.get("content"));
         List<ToolCall> calls = new ArrayList<>();
@@ -32,13 +36,13 @@ public final class ReplyParser {
                 if (c != null) calls.add(c);
             }
         }
-        if (!calls.isEmpty()) return new LlmReply(calls, content.trim(), null);
+        if (!calls.isEmpty()) return new LlmReply(calls, content.trim(), null, finishReason, usage);
 
         List<ToolCall> fromText = jsonFallback(content);
-        if (!fromText.isEmpty()) return new LlmReply(fromText, "", null);
+        if (!fromText.isEmpty()) return new LlmReply(fromText, "", null, finishReason, usage);
 
         String text = content.trim();
-        return new LlmReply(List.of(), "", text.isEmpty() ? null : text);
+        return new LlmReply(List.of(), "", text.isEmpty() ? null : text, finishReason, usage);
     }
 
     private static String contentText(JsonElement c) {

@@ -31,9 +31,13 @@ final class BrainScheduler {
 
     void tick(long now) {
         for (Bot b : m.bots()) {
-            if (b.player.isDeadOrDying()) continue;
-            WakeReason r = b.brain.pollWake(now, b.executor.busy());
-            if (r != null) m.queue().offer(b.name, r, now);
+            try {
+                if (b.player.isDeadOrDying()) continue;
+                WakeReason r = b.brain.pollWake(now, b.executor.busy());
+                if (r != null) m.queue().offer(b.name, r, now);
+            } catch (RuntimeException e) {
+                m.fault(b.name, "wake check", e);
+            }
         }
         while (true) {
             Optional<ThinkQueue.Ticket> ticket = m.queue().pollFirst(name -> m.bot(name)
@@ -42,20 +46,39 @@ final class BrainScheduler {
             if (ticket.isEmpty()) return;
             Optional<Bot> bot = m.bot(ticket.get().bot());
             if (bot.isEmpty() || bot.get().player.isDeadOrDying()) continue;
-            if (!think(bot.get(), ticket.get(), now)) return;
+            try {
+                if (!think(bot.get(), ticket.get(), now)) return;
+            } catch (RuntimeException e) {
+                m.fault(bot.get().name, "think", e);
+                bot.get().brain.failed(ticket.get().reason());
+            }
         }
     }
 
-    /** True when the bot's model has a route open now; otherwise tells operators about any disabled provider on it. */
+    /** True when the bot's model has a route open now; otherwise, if no provider on it can recover soon, tells operators why. */
     private boolean hasRoute(Bot b) {
-        String model = b.brain.modelKey();
-        if (m.llm().peek(model).isPresent()) return true;
-        for (String provider : m.llm().routeProviders(model)) {
-            if (!m.llm().providerDisabled(provider)) continue;
-            String status = m.llm().providerStatus(provider);
-            m.warnOpsOnce(provider, status.startsWith("disabled: ") ? status.substring("disabled: ".length()) : status);
+        try {
+            String model = b.brain.modelKey();
+            if (m.llm().peek(model).isPresent()) return true;
+            List<String> providers = m.llm().routeProviders(model);
+            // A provider that is merely out of rate-limit budget frees up by itself; say nothing.
+            if (providers.stream().anyMatch(m.llm()::providerAvailable)) return false;
+            String text;
+            if (providers.isEmpty()) {
+                text = b.name + " uses model '" + model + "', which is not configured";
+            } else {
+                text = b.name + " (" + model + ") is waiting: " + providers.stream()
+                        .map(p -> p + " " + m.llm().providerStatus(p)).collect(Collectors.joining("; "));
+                if (m.llm().providerDisabled(providers.get(0))) {
+                    text += ". Fix keys.json or aiciv.json for '" + providers.get(0) + "', then run /ai reload.";
+                }
+            }
+            m.warnOps("bot " + b.name, text);
+            return false;
+        } catch (RuntimeException e) {
+            m.fault(b.name, "route check", e);
+            return false;
         }
-        return false;
     }
 
     private boolean think(Bot b, ThinkQueue.Ticket ticket, long now) {
@@ -119,6 +142,8 @@ final class BrainScheduler {
 
         log.addProperty("model", reply.route().modelId());
         log.addProperty("thought", reply.reply().thought());
+        if (reply.reply().finishReason() != null) log.addProperty("finish_reason", reply.reply().finishReason());
+        if (reply.reply().usage() != null) log.add("usage", reply.reply().usage());
         int max = m.config().maxActionsPerDecision;
         List<Action> actions = new ArrayList<>();
         List<String> problems = new ArrayList<>();
@@ -147,7 +172,12 @@ final class BrainScheduler {
         String stamp = m.stamp();
         if (!problems.isEmpty()) b.brain.note(stamp, "problems with your last turn: " + String.join("; ", problems));
         if (actions.isEmpty()) {
-            b.brain.note(stamp, "your last turn did nothing");
+            if ("length".equals(reply.reply().finishReason())) {
+                AiCiv.LOG.warn("{}'s reply was cut off by max_tokens before any action", b.name);
+                b.brain.note(stamp, "your last reply was cut off before any action; reply with fewer words");
+            } else {
+                b.brain.note(stamp, "your last turn did nothing");
+            }
         } else if (actions.stream().allMatch(a -> a instanceof SayAction)) {
             // Talking does not interrupt what the bot is doing.
             for (Action a : actions) a.tick(b.context);

@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,7 +52,11 @@ public final class BotManager {
     private final ThinkQueue queue = new ThinkQueue();
     private final NavBudget navBudget = new NavBudget(NavBudget.DEFAULT_NANOS, System::nanoTime);
     private final BrainScheduler scheduler = new BrainScheduler(this);
-    private final Set<String> warnedProviders = new HashSet<>();
+    /** Last warning text per source, so the log is not spammed. Cleared on reload. */
+    private final Map<String, String> warningsLogged = new HashMap<>();
+    /** Last warning text an operator actually received per source. Cleared on reload. */
+    private final Map<String, String> warningsDelivered = new HashMap<>();
+    private final Set<String> faultsLogged = new HashSet<>();
 
     public BotManager(MinecraftServer server, AiCivConfig config, LlmService llm, Path rosterFile,
                       DecisionLog decisionLog, Clock clock) throws IOException {
@@ -91,17 +96,49 @@ public final class BotManager {
     public void reload(AiCivConfig config, LlmService llm) {
         this.config = config;
         this.llm = llm;
-        warnedProviders.clear();
+        warningsLogged.clear();
+        warningsDelivered.clear();
+        boolean changed = false;
+        for (Bot b : bots.values()) {
+            b.brain.setTiming(config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, config.eventWindow);
+            if (!llm.knowsModel(b.brain.modelKey())) {
+                AiCiv.LOG.warn("{} uses unknown model '{}'; falling back to '{}'", b.name, b.brain.modelKey(), config.defaultModel);
+                b.brain.setModelKey(config.defaultModel);
+                roster.get(b.name).ifPresent(e -> e.model = config.defaultModel);
+                changed = true;
+            }
+        }
+        if (changed) saveRoster();
     }
 
     /** Tells online operators, once per provider, that its key is missing or was rejected. Never shows the key. */
     void warnOpsOnce(String provider, String reason) {
-        if (!warnedProviders.add(provider)) return;
-        AiCiv.LOG.warn("AiCiv provider {} is disabled: {}", provider, reason);
-        Component msg = Component.literal("[AiCiv] Provider '" + provider + "' is disabled: " + reason
-                + ". Fix keys.json, then run /ai reload.").withStyle(ChatFormatting.RED);
+        warnOps("provider " + provider, "Provider '" + provider + "' is disabled: " + reason
+                + ". Fix keys.json, then run /ai reload.");
+    }
+
+    /**
+     * Logs a warning and chats it to online operators. A warning counts as delivered only once an operator
+     * has received it, so one raised before anyone is online is retried; the same text is never repeated.
+     */
+    void warnOps(String source, String text) {
+        if (!text.equals(warningsLogged.put(source, text))) AiCiv.LOG.warn("AiCiv: {}", text);
+        if (text.equals(warningsDelivered.get(source))) return;
+        Component msg = Component.literal("[AiCiv] " + text).withStyle(ChatFormatting.RED);
+        int told = 0;
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-            if (Commands.LEVEL_GAMEMASTERS.check(p.permissions())) p.sendSystemMessage(msg);
+            if (Commands.LEVEL_GAMEMASTERS.check(p.permissions())) {
+                p.sendSystemMessage(msg);
+                told++;
+            }
+        }
+        if (told > 0) warningsDelivered.put(source, text);
+    }
+
+    /** Logs an unexpected exception from one bot's tick work, once per bot and phase, so the server keeps running. */
+    void fault(String bot, String phase, RuntimeException e) {
+        if (faultsLogged.add(key(bot) + "/" + phase)) {
+            AiCiv.LOG.error("AiCiv {} failed for {}; later failures of this kind are not logged", phase, bot, e);
         }
     }
 
@@ -216,10 +253,14 @@ public final class BotManager {
     public void tickStart() {
         navBudget.tick();
         for (Bot b : List.copyOf(bots.values())) {
-            if (b.player.isDeadOrDying() || b.brain.paused()) continue;
-            b.navigator.tick();
-            String ended = b.executor.tick(b.context);
-            if (ended != null) b.brain.actionsEnded(stamp(), ended);
+            try {
+                if (b.player.isDeadOrDying() || b.brain.paused()) continue;
+                b.navigator.tick();
+                String ended = b.executor.tick(b.context);
+                if (ended != null) b.brain.actionsEnded(stamp(), ended);
+            } catch (RuntimeException e) {
+                fault(b.name, "tick", e);
+            }
         }
     }
 
@@ -329,7 +370,7 @@ public final class BotManager {
         List<String> out = new ArrayList<>();
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             if (p == self.player) continue;
-            out.add(p.getScoreboardName() + (p instanceof AiPlayer ? " (AI)" : " (human)"));
+            out.add(p.getScoreboardName() + (p instanceof AiPlayer ? " [AI]" : " [human]"));
         }
         return out;
     }

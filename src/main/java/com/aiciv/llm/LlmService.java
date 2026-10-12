@@ -137,6 +137,12 @@ public final class LlmService {
         return h == null ? "unknown provider" : h.status();
     }
 
+    /** True when the provider is neither disabled nor paused, whatever its rate-limit budget. */
+    public boolean providerAvailable(String providerKey) {
+        ProviderHealth h = health.get(providerKey);
+        return h != null && h.available();
+    }
+
     /** True when the provider's key is missing or was rejected. */
     public boolean providerDisabled(String providerKey) {
         ProviderHealth h = health.get(providerKey);

@@ -6,11 +6,17 @@ import java.util.List;
 
 /** The newest events a bot remembers, sent with every request. */
 public final class EventLog {
-    private final int capacity;
+    private int capacity;
     private final Deque<String> lines = new ArrayDeque<>();
 
     public EventLog(int capacity) {
         this.capacity = Math.max(1, capacity);
+    }
+
+    /** Changes how many lines are kept; the newest survive a shrink. */
+    public void setCapacity(int capacity) {
+        this.capacity = Math.max(1, capacity);
+        while (lines.size() > this.capacity) lines.removeFirst();
     }
 
     public void add(String stamp, String text) {

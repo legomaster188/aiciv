@@ -13,8 +13,8 @@ Put `aiciv-0.1.0.jar` and Fabric API 0.161.0+26.3 in `mods/` of a Fabric 26.3 se
 
 ## Keys
 
-Open a world once: the config files are written when a world loads, not at the title screen.
-That creates `config/aiciv/aiciv.json` and an empty `config/aiciv/keys.json`.
+Open a world once (singleplayer) or start the server once (dedicated): the config files are
+written when the world or server starts, not at the title screen. That creates `config/aiciv/aiciv.json` and an empty `config/aiciv/keys.json`.
 Put keys in `keys.json`, never in `aiciv.json`:
 
 ```json
@@ -22,7 +22,8 @@ Put keys in `keys.json`, never in `aiciv.json`:
 ```
 
 Or set environment variables instead: `AICIV_KEY_GEMINI`, `AICIV_KEY_GROQ`, and so on.
-Run `/ai reload` after changing either file.
+Run `/ai reload` after changing `keys.json`; a key set through an environment variable needs
+the game or server relaunched.
 
 ## Providers and limits
 
@@ -36,15 +37,23 @@ A fresh `aiciv.json` ships only `gemini`, `groq`, `opencode` and `ollama`. OpenR
 GitHub Models, Mistral and Cerebras must be added by hand, for example:
 
 ```json
-"openrouter": { "baseUrl": "https://openrouter.ai/api/v1", "key": "openrouter", "rpm": 20, "rpd": 200, "resetZone": "UTC", "maxInFlight": 2 }
+"providers": {
+  "openrouter": { "baseUrl": "https://openrouter.ai/api/v1", "key": "openrouter", "rpm": 20, "rpd": 200, "resetZone": "UTC", "maxInFlight": 2 }
+},
+"models": {
+  "openrouter-llama": { "provider": "openrouter", "model": "meta-llama/llama-3.3-70b-instruct:free", "fallback": null }
+}
 ```
 
-Then add a model that uses it under `models` and put `openrouter` in `keys.json`.
+Add each entry inside the existing `providers` and `models` objects, then put `openrouter` in `keys.json`.
 
-If a Gemini model keeps returning empty replies, it is spending its token budget on
-thinking: raise `maxTokens` or add `"extra": {"reasoning_effort": "none"}` to the model.
+Gemini counts thinking tokens against `maxTokens`, so `gemini-flash` ships with 4096. If a
+Gemini model still returns empty replies, check `finish_reason` in the decision log: `length`
+means the budget ran out. Raise `maxTokens` or add `"extra": {"reasoning_effort": "none"}`.
 
 ## Commands (op level 2)
+
+In singleplayer, `/ai` needs cheats enabled for the world.
 
 | Command | What it does |
 |---------|--------------|
@@ -75,4 +84,7 @@ Developers: `./gradlew test` runs the unit tests, `./gradlew runGametest` the in
 ## Milestone 1 limits
 
 No mining, crafting or building yet, and no respawn: a bot that dies leaves the world, and
-`/ai spawn <name>` brings it back.
+rejoins automatically at its death spot, with full health, the next time the world loads or the
+server starts (`/ai spawn <name>` brings it back sooner).
+
+AI players count as awake players, so humans cannot skip the night by sleeping.

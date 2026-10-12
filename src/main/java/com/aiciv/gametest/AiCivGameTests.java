@@ -24,6 +24,8 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
@@ -53,6 +55,23 @@ public final class AiCivGameTests {
             server.getPlayerList().remove(bot);
             helper.assertTrue(moved > 2.0, "bot moved only " + moved + " blocks");
             helper.assertTrue(server.getPlayerList().getPlayerByName("TestWalker") == null, "bot is still in the player list");
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void botChangingDimensionStaysVulnerable(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        ServerLevel nether = server.getLevel(Level.NETHER);
+        helper.assertTrue(nether != null, "the test server has no nether");
+        AiPlayer bot = AiPlayer.join(server, "TestDimension", () -> {});
+        bot.moveTo(nether, new Vec3(0.5, 100, 0.5), 0.0F);
+        helper.runAfterDelay(3, () -> {
+            boolean changing = bot.isChangingDimension();
+            boolean inNether = bot.level() == nether;
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(inNether, "bot did not reach the nether");
+            helper.assertTrue(!changing, "bot is still flagged as changing dimension, so it is invulnerable");
             helper.succeed();
         });
     }
@@ -203,6 +222,51 @@ public final class AiCivGameTests {
             helper.assertTrue("scripted".equals(back.brain.modelKey()), "respawned bot has model " + back.brain.modelKey());
             try {
                 manager.remove("TestDies");
+            } catch (com.aiciv.bot.BotException e) {
+                throw new IllegalStateException(e);
+            }
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void reloadMovesBotsOffRemovedModelsAndPushesTiming(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        BotManager manager = scriptedManager(helper, new ScriptedBackend(List.of()), dir);
+        Bot bot = manager.spawn("TestReload", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+        AiCivConfig next = AiCivConfig.GSON.fromJson("""
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"renamed": {"provider": "scripted", "model": "script"}},
+                 "defaultModel": "renamed", "eventWindow": 2}""", AiCivConfig.class);
+        manager.reload(next, new LlmService(next, Map.of("scripted", new ScriptedBackend(List.of())), Clock.systemUTC()));
+        helper.assertTrue("renamed".equals(bot.brain.modelKey()), "bot kept model " + bot.brain.modelKey());
+        for (int i = 0; i < 4; i++) bot.brain.note("s", "event " + i);
+        helper.assertTrue(bot.brain.events().lines().size() == 2, "event window was not applied: " + bot.brain.events().lines());
+        String roster = Files.readString(dir.resolve("roster.json"));
+        helper.assertTrue(roster.contains("renamed"), roster);
+        manager.remove("TestReload");
+        helper.succeed();
+    }
+
+    @GameTest(maxTicks = 100)
+    public void botWithADeadProviderWaitsWithoutCrashing(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        AiCivConfig config = scriptedConfig();
+        // No backend for the provider: it starts disabled, so the bot has no route and no operator is online.
+        LlmService llm = new LlmService(config, Map.of(), Clock.systemUTC());
+        BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm,
+                dir.resolve("roster.json"), new DecisionLog(dir.resolve("logs")), Clock.systemUTC());
+        manager.spawn("TestNoRoute", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+        helper.onEachTick(() -> {
+            manager.tickStart();
+            manager.tickEnd();
+        });
+        helper.runAfterDelay(20, () -> {
+            helper.assertTrue(manager.listLines().get(0).contains("TestNoRoute"), manager.listLines().get(0));
+            try {
+                manager.remove("TestNoRoute");
             } catch (com.aiciv.bot.BotException e) {
                 throw new IllegalStateException(e);
             }

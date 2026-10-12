@@ -131,4 +131,16 @@ class BotBrainTest {
         for (int i = 0; i < 5; i++) b.note("s", "event " + i);
         assertEquals(java.util.List.of("[s] event 2", "[s] event 3", "[s] event 4"), b.events().lines());
     }
+
+    @Test
+    void reloadedTimingReachesARunningBrain() {
+        BotBrain b = brain();
+        b.dispatched(t0);
+        b.replied("x");
+        for (int i = 0; i < 3; i++) b.note("s", "event " + i);
+        b.setTiming(5_000, MENTION, 2);
+        assertEquals(java.util.List.of("[s] event 1", "[s] event 2"), b.events().lines());
+        assertNull(b.pollWake(t0 + 4_999, false));
+        assertEquals(WakeReason.IDLE, b.pollWake(t0 + 5_000, false));
+    }
 }
