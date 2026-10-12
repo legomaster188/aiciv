@@ -10,13 +10,18 @@ import com.aiciv.world.KnownBlocks;
 /** One online AI player and everything that drives it. */
 public final class Bot {
     public final String name;
-    public final AiPlayer player;
+    /** Replaced by a new instance when the bot respawns; swapped together with navigator, breaker and context. */
+    public AiPlayer player;
     public final BotBrain brain;
     public final ActionExecutor executor;
-    public final LevelNavigator navigator;
-    public final BlockBreaker breaker;
+    public LevelNavigator navigator;
+    public BlockBreaker breaker;
     public final KnownBlocks knownBlocks = new KnownBlocks(128);
     public BotContext context;
+    /** Set between a death and the respawn on the next tick. */
+    Death death;
+
+    record Death(String message, int x, int y, int z) {}
 
     Bot(String name, AiPlayer player, BotBrain brain, ActionExecutor executor, LevelNavigator navigator,
         BlockBreaker breaker) {

@@ -60,7 +60,7 @@ public final class AiCiv implements ModInitializer {
         });
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
             BotManager m = manager;
-            if (m != null) m.onDeath(entity);
+            if (m != null) m.onDeath(entity, source);
         });
         CommandRegistrationCallback.EVENT.register((dispatcher, registry, selection) -> AiCommands.register(dispatcher));
         LOG.info("AiCiv initialized");

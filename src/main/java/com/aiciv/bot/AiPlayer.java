@@ -34,9 +34,24 @@ public final class AiPlayer extends ServerPlayer {
         // The listener's constructor assigns player.connection, replacing the vanilla listener.
         new FakeGamePacketListener(server, connection, player, cookie, onDisconnect);
         player.setGameMode(GameType.SURVIVAL); // placeNewPlayer applies the server default, which may be Creative
-        // The default ClientInformation shows no skin layers (hat, jacket, sleeves); a real client sends all seven.
-        player.getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, (byte) 0x7F);
+        player.showAllSkinLayers();
         return player;
+    }
+
+    /**
+     * Builds the replacement for a dead AI player. Only {@code PlayerList.respawn} calls this, from the respawn
+     * mixin; it has no connection yet, so it must not send packets. Vanilla then attaches the old connection.
+     */
+    public static AiPlayer create(MinecraftServer server, ServerLevel level, GameProfile profile) {
+        AiPlayer player = new AiPlayer(server, level, profile);
+        player.gameMode.changeGameModeForPlayer(GameType.SURVIVAL);
+        player.showAllSkinLayers();
+        return player;
+    }
+
+    /** The default ClientInformation shows no skin layers (hat, jacket, sleeves); a real client sends all seven. */
+    private void showAllSkinLayers() {
+        getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, (byte) 0x7F);
     }
 
     public void moveTo(ServerLevel level, Vec3 pos, float yaw) {

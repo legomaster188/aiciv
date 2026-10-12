@@ -84,8 +84,9 @@ Developers: `./gradlew test` runs the unit tests, `./gradlew runGametest` the in
 
 ## Milestone 1 limits
 
-No mining, crafting or building yet, and no respawn: a bot that dies leaves the world, and
-rejoins automatically at its death spot, with full health, the next time the world loads or the
-server starts (`/ai spawn <name>` brings it back sooner).
+No mining, crafting or building yet.
+
+A bot that dies respawns like a player (at the world spawn or its bed) with full health, and is
+told what killed it and where its items dropped.
 
 AI players count as awake players, so humans cannot skip the night by sleeping.

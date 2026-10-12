@@ -287,45 +287,63 @@ public final class AiCivGameTests {
     }
 
     @GameTest(maxTicks = 200)
-    public void botDeathLogsOutWithoutMoreCalls(GameTestHelper helper) throws Exception {
+    public void botRespawnsAfterDeath(GameTestHelper helper) throws Exception {
         stoneFloor(helper);
         ScriptedBackend backend = new ScriptedBackend(List.of());
         Path dir = Files.createTempDirectory("aiciv-gametest");
         BotManager manager = scriptedManager(helper, backend, dir);
-        Bot bot = manager.spawn("TestDies", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+        Vec3 spot = helper.absoluteVec(new Vec3(1.5, 1, 1.5));
+        Bot bot = manager.spawn("TestDies", "scripted", "", helper.getLevel(), spot);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer old = bot.player;
+        boolean[] breaking = {false};
+        int[] requestsAfterDeath = {-1};
+        int[] requestsWhileDead = {-1};
         helper.onEachTick(() -> {
+            if (requestsAfterDeath[0] >= 0 && bot.player == old) requestsWhileDead[0] = backend.requests().size();
             manager.tickStart();
             manager.tickEnd();
+            if (requestsAfterDeath[0] >= 0 && bot.player == old) requestsWhileDead[0] = backend.requests().size();
+            if (breaking[0]) bot.context.breaker().tick();
         });
-        int[] requestsAfterDeath = new int[1];
         helper.runAfterDelay(5, () -> {
-            bot.player.kill(helper.getLevel());
+            // kill() is ignored during the 60 ticks of spawn protection, so die directly.
+            old.setHealth(0.0F);
+            old.die(helper.getLevel().damageSources().genericKill());
             // The global AiCiv listener only feeds the global manager, so call ours directly.
-            manager.onDeath(bot.player);
+            manager.onDeath(old, helper.getLevel().damageSources().genericKill());
+            manager.onDeath(old, helper.getLevel().damageSources().genericKill()); // a repeat must not respawn twice
             requestsAfterDeath[0] = backend.requests().size();
-            helper.assertTrue(bot.player.getHealth() > 0, "health was not restored");
         });
-        helper.runAfterDelay(45, () -> {
-            helper.assertTrue(manager.bot("TestDies").isEmpty(), "dead bot is still managed");
-            helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == null, "dead bot is still in the player list");
-            helper.assertTrue(backend.requests().size() == requestsAfterDeath[0], "LLM was called after death");
-            helper.assertTrue(manager.listLines().get(0).startsWith("TestDies [scripted] offline"), manager.listLines().get(0));
-            Bot back;
-            try {
-                back = manager.spawn("TestDies", null, null, helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
-            } catch (com.aiciv.bot.BotException e) {
-                throw new IllegalStateException(e);
-            }
-            helper.assertTrue(manager.bot("TestDies").isPresent(), "respawned bot is not managed");
-            helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == back.player, "respawned bot is not in the player list");
-            helper.assertTrue(!back.player.isDeadOrDying(), "respawned bot is dead");
-            helper.assertTrue("scripted".equals(back.brain.modelKey()), "respawned bot has model " + back.brain.modelKey());
-            try {
-                manager.remove("TestDies");
-            } catch (com.aiciv.bot.BotException e) {
-                throw new IllegalStateException(e);
-            }
-            helper.succeed();
+        helper.runAfterDelay(15, () -> {
+            AiPlayer now = bot.player;
+            helper.assertTrue(now != old, "the bot still holds the dead player: health " + old.getHealth() + " removed " + old.isRemoved() + " dead " + old.isDeadOrDying());
+            helper.assertTrue(old.isRemoved(), "the old player was not removed");
+            helper.assertTrue(!now.isDeadOrDying() && now.getHealth() == now.getMaxHealth(), "respawned bot health " + now.getHealth());
+            helper.assertTrue(now.gameMode.getGameModeForPlayer() == GameType.SURVIVAL, "respawned bot is in " + now.gameMode.getGameModeForPlayer());
+            long listed = server.getPlayerList().getPlayers().stream().filter(p -> p.getScoreboardName().equals("TestDies")).count();
+            helper.assertTrue(listed == 1, listed + " player list entries named TestDies");
+            helper.assertTrue(server.getPlayerList().getPlayerByName("TestDies") == now, "player list does not hold the new bot");
+            helper.assertTrue(now.connection.player == now, "the connection still points at the old player");
+            helper.assertTrue(events(bot).contains("you died:") && events(bot).contains("Your items dropped at"), events(bot));
+            helper.assertTrue(requestsWhileDead[0] == requestsAfterDeath[0], "LLM was called between death and respawn");
+            helper.assertTrue(manager.bot("TestDies").get() == bot, "bot is no longer managed");
+            helper.assertTrue(bot.context.player() == now, "the context still holds the old player");
+            // The replacement must work with the rebuilt navigator and breaker.
+            now.moveTo(helper.getLevel(), spot, -90.0F);
+            helper.setBlock(5, 1, 1, Blocks.DIRT);
+            bot.navigator.goTo(new NearGoal(helper.absoluteVec(new Vec3(3.5, 1, 1.5)).x, spot.y, spot.z, 1.0));
+            bot.context.breaker().start(helper.absolutePos(new BlockPos(5, 1, 1)));
+            breaking[0] = true;
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(bot.player != old, "not respawned yet");
+            helper.assertTrue(bot.player.getX() > spot.x + 0.5, "the new player did not walk; x " + bot.player.getX());
+            helper.assertTrue(helper.getBlockState(new BlockPos(5, 1, 1)).isAir(), "the new breaker did not break the dirt");
+            removeBot(manager, "TestDies");
+        });
+        helper.runAfterDelay(195, () -> {
+            if (manager.bot("TestDies").isPresent()) removeBot(manager, "TestDies");
         });
     }
 

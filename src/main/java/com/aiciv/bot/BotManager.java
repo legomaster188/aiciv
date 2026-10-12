@@ -28,10 +28,12 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -260,6 +262,15 @@ public final class BotManager {
         navBudget.tick();
         for (Bot b : List.copyOf(bots.values())) {
             try {
+                if (b.death != null && b.player.isDeadOrDying()) {
+                    try {
+                        respawn(b);
+                    } catch (RuntimeException e) {
+                        fault(b.name, "respawn", e);
+                        logout(b);
+                    }
+                    continue;
+                }
                 if (b.player.isDeadOrDying() || b.brain.paused()) continue;
                 b.navigator.tick();
                 String ended = b.executor.tick(b.context);
@@ -298,27 +309,42 @@ public final class BotManager {
                 cause, taken, Math.round(p.getHealth()), Math.round(p.getMaxHealth())), clock.millis());
     }
 
-    /** Milestone 1 has no respawn: a dead bot leaves with health restored so /ai spawn brings it back. */
-    public void onDeath(LivingEntity entity) {
+    /** Records the death; the bot respawns on the next tick, like a player clicking "Respawn". */
+    public void onDeath(LivingEntity entity, DamageSource source) {
         if (!(entity instanceof AiPlayer p)) return;
         Bot b = bots.get(key(p.getScoreboardName()));
-        if (b == null || b.player != p) return;
+        if (b == null || b.player != p || b.death != null) return;
+        BlockPos at = p.blockPosition();
+        b.death = new Bot.Death(source.getLocalizedDeathMessage(p).getString(), at.getX(), at.getY(), at.getZ());
         queue.remove(b.name);
         b.executor.stop(b.context);
-        server.execute(() -> {
-            if (bots.get(key(b.name)) != b) return;
-            p.setHealth(p.getMaxHealth());
-            logout(b);
-            AiCiv.LOG.info("{} died and left. /ai spawn {} brings them back.", b.name, b.name);
-        });
+        b.navigator.stop();
+        b.breaker.cancel();
+    }
+
+    private void respawn(Bot b) {
+        Bot.Death death = b.death;
+        b.death = null; // one respawn per death, whatever happens below
+        AiPlayer old = b.player;
+        ServerPlayer fresh = server.getPlayerList().respawn(old, false, Entity.RemovalReason.KILLED);
+        if (!(fresh instanceof AiPlayer player)) throw new IllegalStateException("respawn produced " + fresh);
+        // Vanilla moved the connection to the new player, but only the client-command path repoints the listener.
+        player.connection.player = player;
+        BlockBreaker breaker = new BlockBreaker(player);
+        b.player = player;
+        b.breaker = breaker;
+        b.navigator = new LevelNavigator(player, navBudget, breaker);
+        b.context = new LiveContext(this, b); // builds the action breaker for the new player too
+        b.brain.actionsEnded(stamp(), String.format(Locale.ROOT, "you died: %s. Your items dropped at %d %d %d",
+                death.message(), death.x(), death.y(), death.z()));
     }
 
     // ---------------------------------------------------------------- internals
 
     private Bot join(Roster.Entry e) {
-        AiPlayer[] holder = new AiPlayer[1];
+        ServerGamePacketListenerImpl[] holder = new ServerGamePacketListenerImpl[1];
         AiPlayer p = AiPlayer.join(server, e.name, () -> server.execute(() -> handleDisconnect(e.name, holder[0])));
-        holder[0] = p;
+        holder[0] = p.connection; // the same listener serves the bot's replacement after a respawn
         BotBrain brain = new BotBrain(e.name, e.persona, e.goal, e.model, config.eventWindow,
                 config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, clock.millis());
         brain.setPaused(e.paused);
@@ -339,9 +365,9 @@ public final class BotManager {
         server.getPlayerList().remove(b.player);
     }
 
-    private void handleDisconnect(String name, AiPlayer player) {
+    private void handleDisconnect(String name, ServerGamePacketListenerImpl listener) {
         Bot b = bots.get(key(name));
-        if (b != null && b.player == player) logout(b);
+        if (b != null && b.player.connection == listener) logout(b);
     }
 
     private void routeChat(String speaker, Level level, Vec3 pos, String text, Bot exclude) {
