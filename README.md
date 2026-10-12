@@ -27,11 +27,12 @@ the game or server relaunched.
 
 ## Providers and limits
 
-`aiciv.json` lists providers (`baseUrl`, `key`, `rpm`, `rpd`, `resetZone`, `maxInFlight`)
+`aiciv.json` lists providers (`baseUrl`, `key`, `rpm`, `rpd`, `resetZone`, `maxInFlight`, `timeoutSeconds`)
 and models (`provider`, `model`, `fallback`, `maxTokens`, `extra`). The limits in a fresh
 file are examples: replace them with your real tier limits. `0` means unlimited. A model
 whose provider is down, rate limited or out of daily budget hands its turn to its
-`fallback` model.
+`fallback` model. `timeoutSeconds` (default 30, minimum 5) is the HTTP timeout per request:
+raise to 60 for slow models like gemini-3.8-flash.
 
 A fresh `aiciv.json` ships only `gemini`, `groq`, `opencode` and `ollama`. OpenRouter,
 GitHub Models, Mistral and Cerebras must be added by hand, for example:

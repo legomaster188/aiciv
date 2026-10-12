@@ -72,7 +72,7 @@ public final class LlmService {
                 key = k.orElse(null);
             }
             try {
-                backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, Duration.ofSeconds(30)));
+                backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, timeout(p)));
             } catch (RuntimeException ex) {
                 disabled.put(e.getKey(), "invalid baseUrl '" + p.baseUrl + "': " + ex.getMessage());
             }
@@ -80,6 +80,15 @@ public final class LlmService {
         LlmService service = new LlmService(config, backends, clock);
         disabled.forEach((provider, reason) -> service.health.get(provider).onAuthFailure(reason));
         return service;
+    }
+
+    private static Duration timeout(ProviderConfig p) {
+        return Duration.ofSeconds(Math.max(5, p.timeoutSeconds));
+    }
+
+    /** The HTTP timeout {@link #create} gives the provider's backend. */
+    public Duration timeoutFor(String providerKey) {
+        return timeout(config.providers.get(providerKey));
     }
 
     public boolean knowsModel(String modelKey) {

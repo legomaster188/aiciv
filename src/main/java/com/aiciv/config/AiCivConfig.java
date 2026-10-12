@@ -25,7 +25,7 @@ public final class AiCivConfig {
     public int hearingRange = 64;
     public int maxNotes = 20;
     public int eventWindow = 10;
-    public int maxActionsPerDecision = 3;
+    public int maxActionsPerDecision = 6;
 
     public static final class ProviderConfig {
         /** "openai" for any OpenAI-compatible HTTP API, "scripted" for canned replies. */
@@ -39,6 +39,8 @@ public final class AiCivConfig {
         public int rpd;
         public String resetZone = "UTC";
         public int maxInFlight = 2;
+        /** HTTP request timeout; raise for slow models. Values under 5 are treated as 5. */
+        public int timeoutSeconds = 30;
         /** Scripted providers only: a JSON file next to aiciv.json. */
         public String script;
 

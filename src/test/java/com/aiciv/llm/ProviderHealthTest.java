@@ -24,6 +24,14 @@ class ProviderHealthTest {
     }
 
     @Test
+    void statusHasNoEmptyParentheses() {
+        h.onRateLimited(Duration.ofSeconds(30));
+        h.onSuccess();
+        assertTrue(h.status().startsWith("paused until"), h.status());
+        assertFalse(h.status().contains("()"), h.status());
+    }
+
+    @Test
     void successResetsTheFailureCount() {
         h.onFailure("x");
         h.onFailure("x");

@@ -148,6 +148,17 @@ class LlmServiceTest {
     }
 
     @Test
+    void timeoutComesFromConfig() throws Exception {
+        AiCivConfig c = config(0);
+        c.providers.get("a").timeoutSeconds = 7;
+        c.providers.get("b").timeoutSeconds = 1; // floored to 5
+        KeyStore keys = KeyStore.load(dir.resolve("keys.json"), name -> null);
+        LlmService s = LlmService.create(c, keys, dir, clock);
+        assertEquals(Duration.ofSeconds(7), s.timeoutFor("a"));
+        assertEquals(Duration.ofSeconds(5), s.timeoutFor("b"));
+    }
+
+    @Test
     void extraFieldsAreMerged() throws Exception {
         AiCivConfig c = config(0);
         c.models.get("ma").extra.addProperty("reasoning_effort", "none");

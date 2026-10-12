@@ -122,8 +122,13 @@ public final class BotManager {
      * has received it, so one raised before anyone is online is retried; the same text is never repeated.
      */
     void warnOps(String source, String text) {
+        warnOps(source, text, true);
+    }
+
+    /** As {@link #warnOps(String, String)}, but with {@code chat} false the warning only reaches the server log. */
+    void warnOps(String source, String text, boolean chat) {
         if (!text.equals(warningsLogged.put(source, text))) AiCiv.LOG.warn("AiCiv: {}", text);
-        if (text.equals(warningsDelivered.get(source))) return;
+        if (!chat || text.equals(warningsDelivered.get(source))) return;
         Component msg = Component.literal("[AiCiv] " + text).withStyle(ChatFormatting.RED);
         int told = 0;
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {

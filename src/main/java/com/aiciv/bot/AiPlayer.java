@@ -8,6 +8,7 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.Vec3;
@@ -32,6 +33,7 @@ public final class AiPlayer extends ServerPlayer {
         server.getPlayerList().placeNewPlayer(connection, player, cookie);
         // The listener's constructor assigns player.connection, replacing the vanilla listener.
         new FakeGamePacketListener(server, connection, player, cookie, onDisconnect);
+        player.setGameMode(GameType.SURVIVAL); // placeNewPlayer applies the server default, which may be Creative
         // The default ClientInformation shows no skin layers (hat, jacket, sleeves); a real client sends all seven.
         player.getEntityData().set(DATA_PLAYER_MODE_CUSTOMISATION, (byte) 0x7F);
         return player;

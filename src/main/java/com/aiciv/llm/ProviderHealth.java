@@ -63,7 +63,7 @@ public final class ProviderHealth {
         if (authDisabled) return "disabled: " + lastProblem;
         if (clock.instant().isBefore(unavailableUntil)) {
             String until = TIME.format(unavailableUntil.atZone(ZoneId.systemDefault()));
-            return "paused until " + until + " (" + lastProblem + ")";
+            return "paused until " + until + (lastProblem.isEmpty() ? "" : " (" + lastProblem + ")");
         }
         return lastProblem.isEmpty() ? "ok" : "ok (last problem: " + lastProblem + ")";
     }

@@ -26,6 +26,22 @@ class AiCivConfigTest {
     }
 
     @Test
+    void defaultsHaveSixActionsAndThirtySecondTimeouts() throws Exception {
+        AiCivConfig c = AiCivConfig.defaults();
+        assertEquals(6, c.maxActionsPerDecision);
+        c.providers.values().forEach(p -> assertEquals(30, p.timeoutSeconds));
+    }
+
+    @Test
+    void timeoutSecondsLoadsFromFile() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"p": {"baseUrl": "http://x", "timeoutSeconds": 60}},
+             "models": {"m": {"provider": "p", "model": "x"}}, "defaultModel": "m"}""");
+        assertEquals(60, AiCivConfig.loadOrCreate(file).providers.get("p").timeoutSeconds);
+    }
+
+    @Test
     void missingFieldsGetDefaults() throws Exception {
         Path file = dir.resolve("aiciv.json");
         Files.writeString(file, """

@@ -16,7 +16,9 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -24,6 +26,8 @@ import java.util.stream.Collectors;
 /** Wakes bots, gives queued bots their LLM turn when a provider is free, and applies the replies. */
 final class BrainScheduler {
     private final BotManager m;
+    /** When each bot first could not dispatch; cleared once it does. */
+    private final Map<String, Long> waitingSince = new HashMap<>();
 
     BrainScheduler(BotManager m) {
         this.m = m;
@@ -60,6 +64,7 @@ final class BrainScheduler {
         try {
             String model = b.brain.modelKey();
             if (m.llm().peek(model).isPresent()) return true;
+            long waited = m.clock().millis() - waitingSince.computeIfAbsent(b.name, n -> m.clock().millis());
             List<String> providers = m.llm().routeProviders(model);
             // A provider that is merely out of rate-limit budget frees up by itself; say nothing.
             if (providers.stream().anyMatch(m.llm()::providerAvailable)) return false;
@@ -73,7 +78,8 @@ final class BrainScheduler {
                     text += ". Fix keys.json or aiciv.json for '" + providers.get(0) + "', then run /ai reload.";
                 }
             }
-            m.warnOps("bot " + b.name, text);
+            boolean primaryDisabled = !providers.isEmpty() && m.llm().providerDisabled(providers.get(0));
+            m.warnOps("bot " + b.name, text, WarningPolicy.shouldChat(primaryDisabled, waited));
             return false;
         } catch (RuntimeException e) {
             m.fault(b.name, "route check", e);
@@ -94,6 +100,7 @@ final class BrainScheduler {
             return false;
         }
         b.brain.dispatched(now);
+        waitingSince.remove(b.name);
         int snapshotChars = snapshot.length();
         sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, outcome, err)));
         return true;

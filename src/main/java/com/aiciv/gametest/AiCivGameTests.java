@@ -25,6 +25,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
@@ -272,5 +273,23 @@ public final class AiCivGameTests {
             }
             helper.succeed();
         });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void botsAreAlwaysSurvival(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        BotManager manager = scriptedManager(helper, new ScriptedBackend(List.of()), dir);
+        MinecraftServer server = helper.getLevel().getServer();
+        server.setDefaultGameType(GameType.CREATIVE);
+        try {
+            Bot bot = manager.spawn("TestSurvival", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+            helper.assertTrue(bot.player.gameMode.getGameModeForPlayer() == GameType.SURVIVAL,
+                    "bot is in " + bot.player.gameMode.getGameModeForPlayer());
+            manager.remove("TestSurvival");
+        } finally {
+            server.setDefaultGameType(GameType.SURVIVAL);
+        }
+        helper.succeed();
     }
 }
