@@ -104,6 +104,7 @@ public final class BotManager {
         boolean changed = false;
         for (Bot b : bots.values()) {
             b.brain.setTiming(config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, config.eventWindow);
+            b.brain.setActionEndedGap(config.decisionGapSeconds * 1000L);
             if (!llm.knowsModel(b.brain.modelKey())) {
                 AiCiv.LOG.warn("{} uses unknown model '{}'; falling back to '{}'", b.name, b.brain.modelKey(), config.defaultModel);
                 b.brain.setModelKey(config.defaultModel);
@@ -366,6 +367,7 @@ public final class BotManager {
         BotBrain brain = new BotBrain(e.name, e.persona, e.goal, e.model, config.eventWindow,
                 config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, clock.millis());
         brain.setPaused(e.paused);
+        brain.setActionEndedGap(config.decisionGapSeconds * 1000L);
         BlockBreaker breaker = new BlockBreaker(p);
         Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget, breaker), breaker);
         b.context = new LiveContext(this, b);

@@ -237,7 +237,7 @@ public final class AiCivGameTests {
         return AiCivConfig.GSON.fromJson("""
                 {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
                  "models": {"scripted": {"provider": "scripted", "model": "script"}},
-                 "defaultModel": "scripted"}""", AiCivConfig.class);
+                 "defaultModel": "scripted", "decisionGapSeconds": 0}""", AiCivConfig.class);
     }
 
     static BotManager scriptedManager(GameTestHelper helper, ScriptedBackend backend, Path dir) throws Exception {
@@ -896,7 +896,7 @@ public final class AiCivGameTests {
         AiCivConfig config = AiCivConfig.GSON.fromJson("""
                 {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
                  "models": {"scripted-menu": {"provider": "scripted", "model": "script", "decisionMode": "menu"}},
-                 "defaultModel": "scripted-menu"}""", AiCivConfig.class);
+                 "defaultModel": "scripted-menu", "decisionGapSeconds": 0}""", AiCivConfig.class);
         LlmService llm = new LlmService(config, Map.of("scripted", backend), Clock.systemUTC());
         BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm,
                 dir.resolve("roster.json"), new DecisionLog(dir.resolve("logs")), Clock.systemUTC());

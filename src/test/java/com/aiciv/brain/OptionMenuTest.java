@@ -72,7 +72,7 @@ class OptionMenuTest {
         for (MenuOption o : options) {
             if (o.id().startsWith("mine_")) counts.put(o.id(), o.calls().get(0).args().get("count").getAsInt());
         }
-        assertEquals(Map.of("mine_oak_log", 6, "mine_stone", 8, "mine_iron_ore", 3), counts);
+        assertEquals(Map.of("mine_oak_log", 6, "mine_stone", 8, "mine_iron_ore", 3, "mine_log", 6), counts);
     }
 
     @Test

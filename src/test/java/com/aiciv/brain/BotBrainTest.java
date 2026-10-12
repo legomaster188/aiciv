@@ -36,7 +36,8 @@ class BotBrainTest {
         b.actionsEnded("s", "finished: say hi");
         assertNull(b.pollWake(t0 + 10, false));
         b.replied("x");
-        assertEquals(WakeReason.ACTION_ENDED, b.pollWake(t0 + 20, false));
+        assertNull(b.pollWake(t0 + 20, false)); // too soon after the last decision
+        assertEquals(WakeReason.ACTION_ENDED, b.pollWake(t0 + BotBrain.DEFAULT_ACTION_ENDED_GAP_MILLIS, false));
     }
 
     @Test

@@ -24,6 +24,8 @@ public final class AiCivConfig {
     public String defaultModel = "gemini-flash";
     public int idleWakeSeconds = 60;
     public int mentionCooldownSeconds = 15;
+    /** Least time between a decision and the next one woken by actions ending; 0 turns it off. */
+    public int decisionGapSeconds = 3;
     public int hearingRange = 64;
     public int maxNotes = 20;
     public int eventWindow = 10;

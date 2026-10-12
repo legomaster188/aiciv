@@ -7,6 +7,9 @@ package com.aiciv.brain;
 public final class BotBrain {
     /** One hurt wake per this long, so damage over time does not cost a call per reply. */
     public static final long HURT_COOLDOWN_MILLIS = 10_000;
+    /** Actions that end at once (already there, nothing to mine) must not turn into several requests a second. */
+    public static final long DEFAULT_ACTION_ENDED_GAP_MILLIS = 3_000;
+    private long actionEndedGapMillis = DEFAULT_ACTION_ENDED_GAP_MILLIS;
 
     private final String name;
     private String persona;
@@ -59,6 +62,10 @@ public final class BotBrain {
         events.add(stamp, text);
     }
 
+    public void setActionEndedGap(long millis) {
+        actionEndedGapMillis = Math.max(0, millis);
+    }
+
     /** Why the bot should think now, or null. Clears the trigger it returns. */
     public WakeReason pollWake(long now, boolean busy) {
         if (mentionWaiting && now - lastMentionWakeMillis >= mentionCooldownMillis) {
@@ -67,6 +74,7 @@ public final class BotBrain {
             raise(WakeReason.MENTIONED);
         }
         if (paused || awaitingReply) return null;
+        if (pending == WakeReason.ACTION_ENDED && now - lastDecisionMillis < actionEndedGapMillis) return null;
         if (pending != null) {
             WakeReason r = pending;
             pending = null;

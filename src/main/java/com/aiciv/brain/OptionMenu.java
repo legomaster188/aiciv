@@ -67,6 +67,8 @@ public final class OptionMenu {
             int count = mineCount(label);
             if (count > 0) add(options, "mine_" + label, "mine " + count + " " + label, call("mine", "block", label, "count", count));
         }
+        // Trees are rarely in sight from where a bot stands; mine finds the nearest ones itself.
+        add(options, "mine_log", "chop 6 logs from the nearest trees (any kind)", call("mine", "block", "log", "count", 6));
         for (String player : ctx.players()) {
             add(options, "go_to_" + player, "walk over to " + player, call("goToPlayer", "name", player));
             add(options, "follow_" + player, "follow " + player + " for a minute", call("follow", "name", player, "seconds", 60));
