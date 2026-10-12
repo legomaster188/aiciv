@@ -5,6 +5,8 @@ import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
+import com.aiciv.perception.Perceiver;
+import com.aiciv.perception.SnapshotFormatter;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -65,6 +67,27 @@ public final class AiCivGameTests {
             helper.assertTrue(s.state() == NavStatus.State.ARRIVED, "navigator is " + s.state() + " " + s.reason());
             helper.assertTrue(bot.getY() > goal.getY() - 0.1, "bot is below the raised ground at y " + bot.getY());
             server.getPlayerList().remove(bot);
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void perceiverSeesExposedBlocksOnly(GameTestHelper helper) {
+        stoneFloor(helper);
+        helper.setBlock(3, 1, 3, Blocks.CRAFTING_TABLE);
+        // A diamond ore with stone on all six sides: it must stay invisible.
+        for (int x = 5; x <= 7; x++) for (int y = 1; y <= 3; y++) for (int z = 5; z <= 7; z++) helper.setBlock(x, y, z, Blocks.STONE);
+        helper.setBlock(6, 2, 6, Blocks.DIAMOND_ORE);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestPerceiver", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)), 0.0F);
+        helper.runAfterDelay(5, () -> {
+            String text = SnapshotFormatter.format(
+                    Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer), SnapshotFormatter.MAX_CHARS);
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(text.startsWith("You: TestPerceiver"), text);
+            helper.assertTrue(text.contains("crafting_table"), "snapshot misses the crafting table:\n" + text);
+            helper.assertTrue(!text.contains("diamond_ore"), "snapshot shows a buried ore:\n" + text);
+            helper.succeed();
         });
     }
 }
