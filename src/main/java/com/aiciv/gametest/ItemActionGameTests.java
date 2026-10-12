@@ -32,6 +32,28 @@ public final class ItemActionGameTests {
         return bot;
     }
 
+    /** Nothing sends move packets for a bot, so its fall has to be added up the way the packet handler does it. */
+    @GameTest(maxTicks = 300)
+    public void takesFallDamageLikeAPlayer(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestFallDamage");
+        boolean[] dropped = new boolean[1];
+        // Wait out the spawn protection, then drop 6 blocks onto stone (the test box is not much taller): 6 - 3 = 3 damage.
+        helper.runAfterDelay(80, () -> {
+            Vec3 high = helper.absoluteVec(new Vec3(3.5, 7, 3.5));
+            bot.player.teleportTo(high.x, high.y, high.z);
+            dropped[0] = true;
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(dropped[0] && bot.player.onGround() && bot.player.getY() < helper.absoluteVec(new Vec3(0, 2, 0)).y,
+                    "not landed yet: dropped=" + dropped[0] + " onGround=" + bot.player.onGround() + " y=" + bot.player.getY()
+                            + " floor=" + helper.absoluteVec(new Vec3(0, 1, 0)).y + " health=" + bot.player.getHealth());
+            float health = bot.player.getHealth();
+            removeBot(manager[0], "TestFallDamage");
+            helper.assertTrue(health >= 16.0F && health <= 18.0F, "expected about 3 fall damage, health is " + health);
+        });
+    }
+
     private static void removeBot(BotManager manager, String name) {
         try {
             manager.remove(name);

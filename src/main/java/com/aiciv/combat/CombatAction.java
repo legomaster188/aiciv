@@ -152,16 +152,12 @@ public final class CombatAction implements Action {
             moveTick = 0; // 30 ticks to land the hit are counted from here
         }
         if (moveTick >= 30) {
-            me.resetFallDistance();
             return ActionStatus.failed("jump_crit: could not land a falling hit");
         }
         face(me, current);
         boolean inReach = me.isWithinEntityInteractionRange(current, 0.0) && me.hasLineOfSight(current);
-        // A fake player has no client sending moves, so nothing adds up its fall; do what the move packet handler does.
-        if (!me.onGround() && me.getDeltaMovement().y < 0) me.doCheckFallDamage(0.0, me.getDeltaMovement().y, 0.0, false);
         if (me.onGround()) {
             if (moveTick - jumpedAt >= 6) {
-                me.resetFallDistance();
                 me.jumpFromGround();
                 jumpedAt = moveTick;
             }
@@ -171,7 +167,6 @@ public final class CombatAction implements Action {
         if (inReach && me.getDeltaMovement().y < 0 && me.fallDistance > 0 && me.getAttackStrengthScale(0.5F) >= READY) {
             me.attack(current);
             me.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
-            me.resetFallDistance();
             return ActionStatus.DONE;
         }
         return null;
@@ -298,7 +293,6 @@ public final class CombatAction implements Action {
         if (me != null) {
             me.stopMoving();
             me.stopUsingItem();
-            me.resetFallDistance();
         }
         ctx.navigator().stop();
     }

@@ -84,6 +84,10 @@ public final class AiPlayer extends ServerPlayer {
         }
         super.tick();
         // A real player's physics run from its network listener's tick. Ours never ticks.
+        double x = getX(), y = getY(), z = getZ();
         doTick();
+        // The move packet handler is what adds up a real player's fall (and so its fall damage and critical hits);
+        // no packets arrive for a bot, so do the same with the distance it just moved.
+        if (isAlive()) doCheckFallDamage(getX() - x, getY() - y, getZ() - z, onGround());
     }
 }
