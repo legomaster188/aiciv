@@ -18,8 +18,8 @@ public final class PathFollower {
     static final int STUCK_TICKS = 60;
     /** Feet this far above the block being replaced clear it, so a throwaway can go where the bot stood. */
     static final double PILLAR_CLEARANCE = 1.05;
-    /** The bot is already over the next cell when it is within half a cell of the near edge plus this margin. */
-    static final double BRIDGE_EDGE = 1.2;
+    /** Within 0.6 of the cell boundary toward the target is 1.1 from the target centre. */
+    static final double BRIDGE_EDGE = 1.1;
 
     private final List<PathStep> steps;
     private final BlockBreaker breaker;
@@ -57,12 +57,19 @@ public final class PathFollower {
             }
 
             if (step.move() == Move.PILLAR) {
-                p.xxa = 0.0F;
-                p.zza = 0.0F;
+                float yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+                p.setYRot(yaw);
+                p.setYHeadRot(yaw);
+                p.yBodyRot = yaw;
                 p.setXRot(90.0F);
-                p.setJumping(true);
-                if (p.getY() >= step.place().y() + PILLAR_CLEARANCE) {
-                    if (!placed(p, step)) return stuck(p);
+                // Stay over the column; once the block is down, stop hopping and land on it.
+                p.xxa = 0.0F;
+                p.zza = horiz > 0.1 ? 1.0F : 0.0F;
+                boolean pending = p.level().getBlockState(toPos(step.place())).canBeReplaced();
+                p.setJumping(pending);
+                if (pending && p.getY() >= step.place().y() + PILLAR_CLEARANCE) {
+                    BlockPlacer.PlaceResult r = place(p, step);
+                    if (r != BlockPlacer.PlaceResult.PLACED) return stuck(p);
                     idle = 0;
                 }
                 return countIdle(p, horiz + Math.abs(dy));
@@ -70,7 +77,7 @@ public final class PathFollower {
             if (step.move() == Move.BRIDGE && horiz <= BRIDGE_EDGE
                     && p.level().getBlockState(toPos(step.place())).canBeReplaced()) {
                 p.stopMoving();
-                if (!placed(p, step)) return stuck(p);
+                if (place(p, step) != BlockPlacer.PlaceResult.PLACED) return stuck(p);
                 idle = 0;
                 return Step.MOVING;
             }
@@ -111,9 +118,13 @@ public final class PathFollower {
         return null;
     }
 
-    private boolean placed(AiPlayer p, PathStep step) {
-        BlockPlacer.PlaceResult r = BlockPlacer.place(p, toPos(step.place()), InventoryOps::isThrowaway);
-        return r == BlockPlacer.PlaceResult.PLACED || r == BlockPlacer.PlaceResult.OCCUPIED;
+    private BlockPlacer.PlaceResult place(AiPlayer p, PathStep step) {
+        return BlockPlacer.place(p, toPos(step.place()), InventoryOps::isThrowaway);
+    }
+
+    /** Where the last step ends. */
+    Pos last() {
+        return steps.get(steps.size() - 1).to();
     }
 
     private Step countIdle(AiPlayer p, double remaining) {

@@ -49,7 +49,7 @@ public final class LevelNavigator implements Navigator {
     /** Call once per server tick, before entities tick. */
     public void tick() {
         if (goal == null) return;
-        if (goal.reached(feet()) && player.onGround()) {
+        if (goal.reached(feet()) && (player.onGround() || player.isInWater())) {
             arrive();
             return;
         }
@@ -72,7 +72,8 @@ public final class LevelNavigator implements Navigator {
         switch (follower.tick(player)) {
             case MOVING -> { }
             case ARRIVED -> {
-                if (goal.reached(feet())) arrive();
+                // A swimmer floats below the water cell the planner chose, so the last step counts too.
+                if (goal.reached(feet()) || goal.reached(follower.last())) arrive();
                 else replanOrFail();
             }
             case STUCK -> replanOrFail();

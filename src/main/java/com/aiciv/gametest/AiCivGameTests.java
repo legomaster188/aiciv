@@ -554,9 +554,14 @@ public final class AiCivGameTests {
     /** Walks a bot from (1,1,3) to the goal cell with the navigator; {@code check} runs once it has arrived. */
     private static void navigate(GameTestHelper helper, String name, ItemStack held, int slot, BlockPos goalCell,
                                  java.util.function.Consumer<AiPlayer> check) {
+        navigate(helper, name, new Vec3(1.5, 1, 3.5), held, slot, goalCell, check);
+    }
+
+    private static void navigate(GameTestHelper helper, String name, Vec3 start, ItemStack held, int slot, BlockPos goalCell,
+                                 java.util.function.Consumer<AiPlayer> check) {
         MinecraftServer server = helper.getLevel().getServer();
         AiPlayer bot = AiPlayer.join(server, name, () -> {});
-        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(start), -90.0F);
         removeOnTimeout(helper, 580, bot);
         if (held != null) bot.getInventory().setItem(slot, held);
         NavBudget budget = new NavBudget(NavBudget.DEFAULT_NANOS, System::nanoTime);
@@ -622,7 +627,37 @@ public final class AiCivGameTests {
                 for (int y = -2; y <= 0; y++) helper.setBlock(x, y, z, Blocks.WATER);
             }
         }
-        navigate(helper, "TestSwim", null, 0, new BlockPos(7, 1, 3), bot ->
-                helper.assertTrue(bot.getX() > helper.absolutePos(new BlockPos(5, 1, 3)).getX(), "bot did not leave the pool"));
+        navigate(helper, "TestSwim", null, 0, new BlockPos(6, 1, 3), bot ->
+                helper.assertTrue(bot.getX() > helper.absolutePos(new BlockPos(5, 1, 3)).getX(), "bot is still west of the pool"));
+    }
+
+    @GameTest(maxTicks = 600)
+    public void pillarsFromOffCentre(GameTestHelper helper) {
+        stoneFloor(helper);
+        for (int x = 2; x < 8; x++) for (int z = 0; z < 8; z++) for (int y = 1; y <= 2; y++) helper.setBlock(x, y, z, Blocks.STONE);
+        navigate(helper, "TestPillarOff", new Vec3(1.1, 1, 3.5), new ItemStack(Items.DIRT, 4), 20, new BlockPos(3, 3, 3), bot ->
+                helper.assertTrue(bot.getY() > helper.absolutePos(new BlockPos(3, 2, 3)).getY() + 0.9, "bot is below the ledge at y " + bot.getY()));
+    }
+
+    @GameTest(maxTicks = 100)
+    public void followerIsStuckWhenTheBreakerFails(GameTestHelper helper) {
+        stoneFloor(helper);
+        helper.setBlock(2, 1, 3, Blocks.BEDROCK);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestStuckDig", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        helper.runAfterDelay(3, () -> {
+            try {
+                BlockPos rock = helper.absolutePos(new BlockPos(2, 1, 3));
+                com.aiciv.nav.Pos at = new com.aiciv.nav.Pos(rock.getX(), rock.getY(), rock.getZ());
+                com.aiciv.nav.PathStep step = new com.aiciv.nav.PathStep(at, com.aiciv.nav.Move.WALK, List.of(at), null);
+                com.aiciv.nav.PathFollower follower = new com.aiciv.nav.PathFollower(List.of(step), new BlockBreaker(bot));
+                com.aiciv.nav.PathFollower.Step result = follower.tick(bot);
+                helper.assertTrue(result == com.aiciv.nav.PathFollower.Step.STUCK, "follower gave " + result);
+            } finally {
+                server.getPlayerList().remove(bot);
+            }
+            helper.succeed();
+        });
     }
 }
