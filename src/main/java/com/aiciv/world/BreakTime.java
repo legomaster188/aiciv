@@ -17,6 +17,6 @@ public final class BreakTime {
         if (hardness < 0) return Double.POSITIVE_INFINITY;
         if (hardness == 0) return 0.05;
         double perTick = Math.max(1.0F, speed) / hardness / (canHarvest ? 30 : 100);
-        return 1 / perTick / 20;
+        return Math.max(0.05, 1 / perTick / 20);
     }
 }

@@ -3,6 +3,7 @@ package com.aiciv.gametest;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotManager;
+import com.aiciv.bot.FakeConnection;
 import com.aiciv.brain.DecisionLog;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.llm.LlmService;
@@ -21,13 +22,18 @@ import com.google.gson.JsonParser;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientboundBlockDestructionPacket;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -299,33 +305,71 @@ public final class AiCivGameTests {
         helper.succeed();
     }
 
-    /** Ticks a breaker on the stone at (3,1,3) and succeeds once the block is gone and the drops settled. */
-    private static void breakStone(GameTestHelper helper, String name, boolean withPickaxe, boolean expectDrop) {
+    /** Removes the bots if the test times out before it cleans up itself. */
+    private static void removeOnTimeout(GameTestHelper helper, int maxTicks, AiPlayer... bots) {
+        MinecraftServer server = helper.getLevel().getServer();
+        helper.runAfterDelay(maxTicks - 1, () -> {
+            for (AiPlayer bot : bots) if (server.getPlayerList().getPlayers().contains(bot)) server.getPlayerList().remove(bot);
+        });
+    }
+
+    /** A second fake player near the work site that records what the server sends it, to see crack animations. */
+    private static AiPlayer observer(GameTestHelper helper, String name, List<Packet<?>> seen) {
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer o = AiPlayer.join(server, name, () -> {});
+        o.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(5.5, 1, 5.5)), 0.0F);
+        FakeConnection connection = new FakeConnection();
+        CommonListenerCookie cookie = new CommonListenerCookie(o.getGameProfile(), 0, o.clientInformation(), false);
+        new ServerGamePacketListenerImpl(server, connection, o, cookie) {
+            @Override public void send(Packet<?> packet) { seen.add(packet); }
+        };
+        return o;
+    }
+
+    private static int lastCrackStage(List<Packet<?>> seen, BlockPos pos) {
+        int stage = -2;
+        for (Packet<?> p : seen) {
+            if (p instanceof ClientboundBlockDestructionPacket c && c.getPos().equals(pos)) stage = c.getProgress();
+        }
+        return stage;
+    }
+
+    /** Breaks the stone at (3,1,3) and checks it took between minBreakTicks and maxBreakTicks breaker ticks. */
+    private static void breakStone(GameTestHelper helper, String name, boolean withPickaxe, boolean expectDrop,
+                                   int minBreakTicks, int maxBreakTicks, int testTicks) {
         stoneFloor(helper);
         helper.setBlock(3, 1, 3, Blocks.STONE);
         MinecraftServer server = helper.getLevel().getServer();
         AiPlayer bot = AiPlayer.join(server, name, () -> {});
         bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        List<Packet<?>> seen = new ArrayList<>();
+        AiPlayer watcher = observer(helper, name + "W", seen);
+        removeOnTimeout(helper, testTicks, bot, watcher);
         if (withPickaxe) bot.getInventory().setItem(15, new ItemStack(Items.WOODEN_PICKAXE));
         BlockPos stone = helper.absolutePos(new BlockPos(3, 1, 3));
         BlockBreaker breaker = new BlockBreaker(bot);
         breaker.start(stone);
-        int[] airSince = {-1};
-        int[] tick = {0};
+        int[] breakTicks = {0};
+        int[] settled = {0};
+        boolean[] done = {false};
         helper.onEachTick(() -> {
-            tick[0]++;
             if (breaker.busy()) {
+                breakTicks[0]++;
                 BlockBreaker.Status status = breaker.tick();
                 if (status.state() == BlockBreaker.Status.State.FAILED) {
                     server.getPlayerList().remove(bot);
+                    server.getPlayerList().remove(watcher);
                     helper.fail("breaker failed: " + status.reason());
                 }
-            } else if (airSince[0] < 0) {
-                airSince[0] = tick[0];
+                done[0] = status.state() == BlockBreaker.Status.State.DONE;
+            } else if (done[0]) {
+                settled[0]++;
             }
         });
         helper.succeedWhen(() -> {
-            helper.assertTrue(airSince[0] >= 0 && tick[0] - airSince[0] >= 30, "block not broken and settled yet");
+            helper.assertTrue(done[0] && settled[0] >= 30, "block not broken and settled yet");
+            helper.assertTrue(breakTicks[0] >= minBreakTicks && breakTicks[0] <= maxBreakTicks,
+                    "breaking took " + breakTicks[0] + " ticks, expected " + minBreakTicks + ".." + maxBreakTicks);
             helper.assertTrue(helper.getLevel().getBlockState(stone).isAir(), "stone is still there");
             boolean cobble = InventoryOps.has(bot, Items.COBBLESTONE, 1)
                     || !helper.getLevel().getEntitiesOfClass(ItemEntity.class, bot.getBoundingBox().inflate(6),
@@ -335,18 +379,65 @@ public final class AiCivGameTests {
                 helper.assertTrue(bot.getInventory().getItem(bot.getInventory().getSelectedSlot()).is(Items.WOODEN_PICKAXE),
                         "pickaxe was not selected");
             }
+            helper.assertTrue(lastCrackStage(seen, stone) == -1, "crack stage after DONE is " + lastCrackStage(seen, stone));
             server.getPlayerList().remove(bot);
+            server.getPlayerList().remove(watcher);
         });
     }
 
     @GameTest(maxTicks = 200)
     public void breakerBreaksStoneWithPickaxeAndDropsCobblestone(GameTestHelper helper) {
-        breakStone(helper, "TestBreakPick", true, true);
+        breakStone(helper, "TestBreakPick", true, true, 22, 26, 200);
     }
 
     @GameTest(maxTicks = 300)
     public void breakerWithoutToolBreaksStoneButGetsNoDrop(GameTestHelper helper) {
-        breakStone(helper, "TestBreakHand", false, false);
+        breakStone(helper, "TestBreakHand", false, false, 147, 155, 300);
+    }
+
+    @GameTest(maxTicks = 100)
+    public void breakerRefusesBedrockAndClearsTheCrackOnCancel(GameTestHelper helper) {
+        stoneFloor(helper);
+        helper.setBlock(3, 1, 3, Blocks.BEDROCK);
+        helper.setBlock(4, 1, 3, Blocks.STONE);
+        helper.setBlock(5, 1, 3, Blocks.STONE);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestBreakFail", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        List<Packet<?>> seen = new ArrayList<>();
+        AiPlayer watcher = observer(helper, "TestBreakFailW", seen);
+        removeOnTimeout(helper, 100, bot, watcher);
+        helper.runAfterDelay(3, () -> {
+            try {
+                BlockPos bedrock = helper.absolutePos(new BlockPos(3, 1, 3));
+                BlockBreaker breaker = new BlockBreaker(bot);
+                breaker.start(bedrock);
+                BlockBreaker.Status status = breaker.tick();
+                helper.assertTrue(status.state() == BlockBreaker.Status.State.FAILED && status.reason().equals("can't break bedrock"),
+                        "bedrock gave " + status);
+                helper.assertTrue(!breaker.busy(), "breaker is still busy after failing");
+
+                BlockPos stone = helper.absolutePos(new BlockPos(4, 1, 3));
+                breaker.start(stone);
+                for (int i = 0; i < 10; i++) breaker.tick();
+                helper.assertTrue(lastCrackStage(seen, stone) >= 0, "no crack was shown while breaking");
+                breaker.cancel();
+                helper.assertTrue(!breaker.busy(), "breaker is still busy after cancel");
+                helper.assertTrue(lastCrackStage(seen, stone) == -1, "crack stage after cancel is " + lastCrackStage(seen, stone));
+
+                BlockPos other = helper.absolutePos(new BlockPos(5, 1, 3));
+                breaker.start(other);
+                breaker.tick();
+                helper.getLevel().setBlockAndUpdate(other, Blocks.DIRT.defaultBlockState());
+                status = breaker.tick();
+                helper.assertTrue(status.state() == BlockBreaker.Status.State.FAILED && status.reason().equals("block changed"),
+                        "swapped block gave " + status);
+            } finally {
+                server.getPlayerList().remove(bot);
+                server.getPlayerList().remove(watcher);
+            }
+            helper.succeed();
+        });
     }
 
     @GameTest(maxTicks = 100)
@@ -367,6 +458,31 @@ public final class AiCivGameTests {
             helper.assertTrue(dirt, "no dirt at the target");
             helper.assertTrue(left == 2, "bot has " + left + " dirt left");
             helper.assertTrue(again == BlockPlacer.PlaceResult.OCCUPIED, "second place gave " + again);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void placerPlacesNextToACraftingTableWithoutOpeningIt(GameTestHelper helper) {
+        stoneFloor(helper);
+        helper.setBlock(3, 2, 2, Blocks.CRAFTING_TABLE);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestPlaceTable", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), 0.0F);
+        bot.getInventory().setItem(20, new ItemStack(Items.DIRT, 3));
+        removeOnTimeout(helper, 100, bot);
+        // Air below and on three sides: the table is the only thing to click against.
+        BlockPos target = helper.absolutePos(new BlockPos(2, 2, 2));
+        helper.runAfterDelay(3, () -> {
+            try {
+                BlockPlacer.PlaceResult result = BlockPlacer.place(bot, target, s -> s.is(Items.DIRT));
+                helper.assertTrue(result == BlockPlacer.PlaceResult.PLACED, "place gave " + result);
+                helper.assertTrue(helper.getLevel().getBlockState(target).is(Blocks.DIRT), "no dirt at the target");
+                helper.assertTrue(bot.containerMenu == bot.inventoryMenu, "the crafting table was opened");
+                helper.assertTrue(!bot.isShiftKeyDown(), "bot was left sneaking");
+            } finally {
+                server.getPlayerList().remove(bot);
+            }
             helper.succeed();
         });
     }

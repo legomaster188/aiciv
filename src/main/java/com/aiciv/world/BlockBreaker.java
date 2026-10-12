@@ -3,6 +3,7 @@ package com.aiciv.world;
 import com.aiciv.bot.AiPlayer;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
@@ -28,6 +29,7 @@ public final class BlockBreaker {
 
     private final AiPlayer player;
     private BlockPos target;
+    private BlockState startState;
     private float progress;
     private int ticks;
 
@@ -38,6 +40,7 @@ public final class BlockBreaker {
     public void start(BlockPos pos) {
         cancel();
         target = pos.immutable();
+        startState = player.level().getBlockState(target);
     }
 
     public boolean busy() {
@@ -47,6 +50,7 @@ public final class BlockBreaker {
     public void cancel() {
         if (target != null) player.level().destroyBlockProgress(player.getId(), target, -1);
         target = null;
+        startState = null;
         progress = 0;
         ticks = 0;
     }
@@ -59,10 +63,18 @@ public final class BlockBreaker {
             cancel();
             return Status.DONE;
         }
+        if (state != startState) {
+            cancel();
+            return Status.failed("block changed");
+        }
         if (state.getDestroySpeed(level, target) < 0) {
-            String reason = "can't break " + state.getBlock().getDescriptionId();
+            String reason = "can't break " + name(state);
             cancel();
             return Status.failed(reason);
+        }
+        if (!level.mayInteract(player, target)) {
+            cancel();
+            return Status.failed("not allowed to break " + name(state) + " here");
         }
         if (new AABB(target).distanceToSqr(player.getEyePosition()) > square(player.blockInteractionRange())) {
             cancel();
@@ -79,7 +91,11 @@ public final class BlockBreaker {
         }
         boolean broken = player.gameMode.destroyBlock(target);
         cancel(); // also clears the crack
-        return broken ? Status.DONE : Status.failed("couldn't break " + state.getBlock().getDescriptionId());
+        return broken ? Status.DONE : Status.failed("couldn't break " + name(state));
+    }
+
+    private static String name(BlockState state) {
+        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
     }
 
     private static double square(double v) {

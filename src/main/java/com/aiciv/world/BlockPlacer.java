@@ -25,6 +25,7 @@ public final class BlockPlacer {
     public static PlaceResult place(AiPlayer p, BlockPos target, Predicate<ItemStack> item) {
         ServerLevel level = (ServerLevel) p.level();
         if (!level.getBlockState(target).canBeReplaced()) return PlaceResult.OCCUPIED;
+        if (!level.mayInteract(p, target)) return PlaceResult.REFUSED;
         Direction face = null;
         for (Direction d : FACE_ORDER) {
             if (!level.getBlockState(target.relative(d)).canBeReplaced()) {
@@ -40,7 +41,14 @@ public final class BlockPlacer {
         if (!InventoryOps.selectBest(p, s -> item.test(s) ? 1 : 0)) return PlaceResult.NO_ITEM;
         p.lookAt(EntityAnchorArgument.Anchor.EYES, hit);
         ItemStack stack = p.getItemInHand(InteractionHand.MAIN_HAND);
-        p.gameMode.useItemOn(p, level, stack, InteractionHand.MAIN_HAND, new BlockHitResult(hit, face.getOpposite(), neighbour, false));
+        // Sneaking keeps the click from using the neighbour (opening a table, toggling a lever) instead of placing.
+        boolean wasSneaking = p.isShiftKeyDown();
+        p.setShiftKeyDown(true);
+        try {
+            p.gameMode.useItemOn(p, level, stack, InteractionHand.MAIN_HAND, new BlockHitResult(hit, face.getOpposite(), neighbour, false));
+        } finally {
+            p.setShiftKeyDown(wasSneaking);
+        }
         return level.getBlockState(target).canBeReplaced() ? PlaceResult.REFUSED : PlaceResult.PLACED;
     }
 }
