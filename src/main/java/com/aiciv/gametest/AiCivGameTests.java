@@ -1,5 +1,8 @@
 package com.aiciv.gametest;
 
+import com.aiciv.actions.CollectAction;
+import com.aiciv.actions.ExploreAction;
+import com.aiciv.actions.MineAction;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotManager;
@@ -658,6 +661,136 @@ public final class AiCivGameTests {
                 server.getPlayerList().remove(bot);
             }
             helper.succeed();
+        });
+    }
+
+    private static Bot actionBot(GameTestHelper helper, BotManager[] manager, String name, Vec3 start) throws Exception {
+        manager[0] = scriptedManager(helper, new ScriptedBackend(List.of()), Files.createTempDirectory("aiciv-gametest"));
+        Bot bot = manager[0].spawn(name, "scripted", "", helper.getLevel(), helper.absoluteVec(start));
+        helper.onEachTick(manager[0]::tickStart);
+        return bot;
+    }
+
+    private static void removeBot(BotManager manager, String name) {
+        try {
+            manager.remove(name);
+        } catch (com.aiciv.bot.BotException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String events(Bot bot) {
+        return String.join("\n", bot.brain.events().lines());
+    }
+
+    private static void oakTree(GameTestHelper helper, int x, int z) {
+        for (int y = 1; y <= 3; y++) helper.setBlock(x, y, z, Blocks.OAK_LOG);
+    }
+
+    private static int logsLeft(GameTestHelper helper, int x, int z) {
+        int n = 0;
+        for (int y = 1; y <= 3; y++) if (helper.getBlockState(new BlockPos(x, y, z)).is(Blocks.OAK_LOG)) n++;
+        return n;
+    }
+
+    @GameTest(maxTicks = 1500)
+    public void minesLogsAcrossTwoTrees(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        oakTree(helper, 1, 2);
+        oakTree(helper, 5, 2);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestMineLogs", new Vec3(3.5, 1, 5.5));
+        bot.executor.replace(List.of(new MineAction("log", 5)), bot.context);
+        helper.succeedWhen(() -> {
+            int logs = InventoryOps.count(bot.player, s -> s.is(Items.OAK_LOG));
+            helper.assertTrue(logs >= 5, "bot holds only " + logs + " oak_log; " + events(bot));
+            helper.assertTrue(events(bot).contains("finished: mine oak_log x5"), "mine did not finish: " + events(bot));
+            helper.assertTrue(logsLeft(helper, 1, 2) < 3, "the west tree is untouched");
+            helper.assertTrue(logsLeft(helper, 5, 2) < 3, "the east tree is untouched");
+            removeBot(manager[0], "TestMineLogs");
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void mineFailsFastWithoutTheRightTool(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        helper.setBlock(3, 1, 3, Blocks.COPPER_ORE);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestNoTool", new Vec3(1.5, 1, 1.5));
+        bot.player.getInventory().setItem(0, new ItemStack(Items.WOODEN_PICKAXE));
+        bot.executor.replace(List.of(new MineAction("copper_ore", 1)), bot.context);
+        helper.runAfterDelay(20, () -> {
+            String text = events(bot);
+            boolean intact = helper.getBlockState(new BlockPos(3, 1, 3)).is(Blocks.COPPER_ORE);
+            removeBot(manager[0], "TestNoTool");
+            helper.assertTrue(text.contains("failed: mine") && text.contains("stone"), "expected a stone pickaxe hint: " + text);
+            helper.assertTrue(intact, "the ore was dug anyway");
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void mineFailsFastWhenNothingKnown(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestNothing", new Vec3(1.5, 1, 1.5));
+        bot.executor.replace(List.of(new MineAction("diamond", 1)), bot.context);
+        helper.runAfterDelay(20, () -> {
+            String text = events(bot);
+            removeBot(manager[0], "TestNothing");
+            helper.assertTrue(text.contains("failed: mine") && text.contains("no diamond known nearby") && text.contains("explore"),
+                    "expected an explore hint: " + text);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 300)
+    public void mineRetriesWhenTheBlockStateChangesMidBreak(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        helper.setBlock(2, 1, 2, Blocks.OAK_LOG);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestChanged", new Vec3(2.5, 1, 4.5));
+        bot.executor.replace(List.of(new MineAction("log", 1)), bot.context);
+        // Turning the log changes its state while it is being broken, which BlockBreaker reports as "block changed".
+        helper.runAfterDelay(8, () -> helper.setBlock(2, 1, 2, Blocks.OAK_LOG.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.RotatedPillarBlock.AXIS, net.minecraft.core.Direction.Axis.X)));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(events(bot).contains("finished: mine oak_log x1"), "mine did not finish: " + events(bot));
+            helper.assertTrue(InventoryOps.count(bot.player, s -> s.is(Items.OAK_LOG)) >= 1, "no log was collected");
+            removeBot(manager[0], "TestChanged");
+        });
+    }
+
+    @GameTest(maxTicks = 400)
+    public void collectPicksUpDroppedItems(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestCollect", new Vec3(1.5, 1, 3.5));
+        for (int z : new int[] {2, 4, 6}) {
+            Vec3 at = helper.absoluteVec(new Vec3(6.5, 1.2, z + 0.5));
+            helper.getLevel().addFreshEntity(new ItemEntity(helper.getLevel(), at.x, at.y, at.z, new ItemStack(Items.AMETHYST_SHARD)));
+        }
+        bot.executor.replace(List.of(new CollectAction("amethyst_shard")), bot.context);
+        helper.succeedWhen(() -> {
+            int held = InventoryOps.count(bot.player, s -> s.is(Items.AMETHYST_SHARD));
+            helper.assertTrue(held == 3, "bot holds " + held + " amethyst_shard; " + events(bot));
+            helper.assertTrue(events(bot).contains("finished: collect amethyst_shard"), "collect did not finish: " + events(bot));
+            removeBot(manager[0], "TestCollect");
+        });
+    }
+
+    @GameTest(maxTicks = 400)
+    public void exploreWalksNorth(GameTestHelper helper) throws Exception {
+        for (int x = 0; x < 8; x++) for (int z = 0; z < 16; z++) helper.setBlock(x, 0, z, Blocks.STONE);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestExplore", new Vec3(3.5, 1, 15.5));
+        double startZ = bot.player.getZ();
+        // The goal circle has radius 8, so the target must lie more than 8 blocks ahead for the bot to move.
+        bot.executor.replace(List.of(new ExploreAction("N", 14)), bot.context);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(startZ - bot.player.getZ() >= 5.0, "bot only moved " + (startZ - bot.player.getZ()) + " north");
+            helper.assertTrue(events(bot).contains("finished: explore N 14"), "explore did not finish: " + events(bot));
+            removeBot(manager[0], "TestExplore");
         });
     }
 }
