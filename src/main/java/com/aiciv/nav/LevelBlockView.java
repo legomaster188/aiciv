@@ -46,7 +46,7 @@ public final class LevelBlockView implements BlockView {
     @Override
     public boolean water(int x, int y, int z) {
         BlockState s = at(x, y, z);
-        return s != null && s.getFluidState().is(FluidTags.WATER);
+        return s != null && s.getFluidState().is(FluidTags.WATER) && s.getCollisionShape(level, cursor).isEmpty();
     }
 
     @Override

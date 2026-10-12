@@ -97,11 +97,31 @@ class PathSearchTest {
 
     @Test
     void neverDigsNextToLava() {
-        GridView g = wall(0.5).lava(4, 1, 1);
+        // One-wide corridor: both wall cells have lava beside them, so digging would open a lava pocket.
+        GridView g = new GridView().floor(0, 6, 0, 1, 1)
+                .breakable(3, 1, 1, 0.5).breakable(3, 2, 1, 0.5).lava(3, 1, 2).lava(3, 2, 2);
         PathSearch s = run(g, new Pos(0, 1, 1), at(5, 1, 1), new SearchOptions(true, false));
-        assertEquals(PathSearch.State.FOUND, s.state());
-        assertTrue(s.steps().stream().noneMatch(st -> st.breaks().contains(new Pos(3, 1, 1))), s.steps().toString());
-        assertFalse(s.path().contains(new Pos(4, 1, 1)));
+        assertEquals(PathSearch.State.FAILED, s.state());
+        GridView safe = new GridView().floor(0, 6, 0, 1, 1).breakable(3, 1, 1, 0.5).breakable(3, 2, 1, 0.5);
+        assertEquals(PathSearch.State.FOUND, run(safe, new Pos(0, 1, 1), at(5, 1, 1), new SearchOptions(true, false)).state());
+    }
+
+    @Test
+    void neverBridgesNextToLava() {
+        GridView g = new GridView().floor(0, 2, 0, 0, 0).floor(4, 6, 0, 0, 0).lava(3, -1, 0)
+                .floor(0, 6, 3, 0, 0); // ceiling: no pillaring up and bridging higher up
+        for (int x = -1; x <= 7; x++) g.solid(x, 1, 1).solid(x, 2, 1).solid(x, 1, -1).solid(x, 2, -1);
+        g.solid(-1, 1, 0).solid(-1, 2, 0).solid(7, 1, 0).solid(7, 2, 0);
+        assertEquals(PathSearch.State.FAILED, run(g, new Pos(0, 1, 0), at(6, 1, 0), new SearchOptions(false, true)).state());
+    }
+
+    @Test
+    void neverPillarsNextToLava() {
+        GridView g = new GridView().floor(0, 0, 0, 0, 0).lava(-1, 1, 0);
+        for (int y = 2; y <= 4; y++) g.solid(-1, y, 0);
+        for (int y = 1; y <= 4; y++) g.solid(0, y, 1).solid(0, y, -1);
+        for (int y = 1; y <= 3; y++) g.solid(1, y, 0);
+        assertEquals(PathSearch.State.FAILED, run(g, new Pos(0, 1, 0), at(1, 4, 0), new SearchOptions(false, true)).state());
     }
 
     @Test
