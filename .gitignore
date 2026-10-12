@@ -1,0 +1,11 @@
+# Gradle / IDE
+.gradle/
+build/
+out/
+*.iml
+.idea/
+# Minecraft dev run directory: worlds, logs and the live config with API keys
+run/
+logs/
+# Never commit keys
+keys.json
