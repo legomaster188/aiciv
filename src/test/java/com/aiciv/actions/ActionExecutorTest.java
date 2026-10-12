@@ -150,4 +150,48 @@ class ActionExecutorTest {
         ex.resume(ctx);
         assertEquals("finished: a", ex.tick(ctx));
     }
+    /** Walks somewhere, and stops walking when cancelled, like every movement action. */
+    static final class Walker implements Action {
+        int cancels;
+
+        @Override public ActionStatus tick(BotContext ctx) {
+            if (ctx.navigator().status().state() == com.aiciv.nav.NavStatus.State.IDLE) ctx.navigator().goTo(new com.aiciv.nav.NearGoal(9, 64, 9, 1));
+            return ActionStatus.RUNNING;
+        }
+        @Override public String describe() { return "walk"; }
+        @Override public int timeoutTicks() { return 100; }
+        @Override public void cancel(BotContext ctx) {
+            cancels++;
+            ctx.navigator().stop();
+        }
+    }
+
+    @Test
+    void replacingWhilePausedLeavesTheReflexNavigationAlone() {
+        Walker walker = new Walker();
+        ex.replace(List.of(walker), ctx);
+        ex.tick(ctx);
+        ex.pause(ctx);
+        ctx.navigator.stop(); // the reflex takes the navigator over...
+        ctx.navigator.goTo(new com.aiciv.nav.NearGoal(-9, 64, -9, 2)); // ...and runs away
+        int stopsBefore = ctx.navigator.stops;
+        ex.replace(List.of(new Scripted("next", 100, ActionStatus.DONE)), ctx);
+        assertEquals(1, walker.cancels);
+        assertEquals(stopsBefore, ctx.navigator.stops, "cancelling the paused action stopped the reflex's navigation");
+        assertEquals(com.aiciv.nav.NavStatus.State.RUNNING, ctx.navigator.status().state());
+        ex.stop(ctx);
+        assertEquals(stopsBefore, ctx.navigator.stops);
+        ex.replace(List.of(new Scripted("next", 100, ActionStatus.DONE)), ctx);
+        ex.resume(ctx);
+        assertEquals("finished: next", ex.tick(ctx));
+    }
+
+    @Test
+    void replacingWhileRunningStillStopsTheNavigation() {
+        Walker walker = new Walker();
+        ex.replace(List.of(walker), ctx);
+        ex.tick(ctx);
+        ex.replace(List.of(), ctx);
+        assertEquals(1, ctx.navigator.stops);
+    }
 }

@@ -202,8 +202,13 @@ public final class BotManager {
             if (b == null) continue;
             b.brain.setPaused(paused);
             if (paused) {
+                // A paused bot is not ticked, so whatever is steering it (an action or a reflex) is stopped here.
                 b.executor.stop(b.context);
                 queue.remove(b.name);
+                b.reflexes.reset(b);
+                b.navigator.stop();
+                b.breaker.cancel();
+                b.player.stopMoving();
             }
         }
         saveRoster();
@@ -317,6 +322,7 @@ public final class BotManager {
         if (b == null || b.player != p || b.death != null) return;
         BlockPos at = p.blockPosition();
         b.death = new Bot.Death(source.getLocalizedDeathMessage(p).getString(), at.getX(), at.getY(), at.getZ());
+        b.life++;
         queue.remove(b.name);
         b.executor.stop(b.context);
         b.navigator.stop();
@@ -328,6 +334,16 @@ public final class BotManager {
         b.death = null; // one respawn per death, whatever happens below
         AiPlayer old = b.player;
         ServerPlayer fresh = server.getPlayerList().respawn(old, false, Entity.RemovalReason.KILLED);
+        try {
+            adopt(b, fresh, death);
+        } catch (RuntimeException e) {
+            // Vanilla already swapped the players; the caller logs the old one out, so the new one must go too.
+            if (fresh != null && fresh != b.player) server.getPlayerList().remove(fresh);
+            throw e;
+        }
+    }
+
+    private void adopt(Bot b, ServerPlayer fresh, Bot.Death death) {
         if (!(fresh instanceof AiPlayer player)) throw new IllegalStateException("respawn produced " + fresh);
         // Vanilla moved the connection to the new player, but only the client-command path repoints the listener.
         player.connection.player = player;

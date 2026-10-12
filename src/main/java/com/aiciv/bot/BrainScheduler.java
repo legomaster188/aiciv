@@ -26,10 +26,12 @@ import com.google.gson.JsonObject;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -58,15 +60,17 @@ final class BrainScheduler {
                 m.fault(b.name, "wake check", e);
             }
         }
+        // A bot whose request could not be sent waits for the next tick; it never holds up the bots behind it.
+        Set<String> unsent = new HashSet<>();
         while (true) {
-            Optional<ThinkQueue.Ticket> ticket = m.queue().pollFirst(name -> m.bot(name)
+            Optional<ThinkQueue.Ticket> ticket = m.queue().pollFirst(name -> !unsent.contains(name) && m.bot(name)
                     .map(this::hasRoute)
                     .orElse(true));
             if (ticket.isEmpty()) return;
             Optional<Bot> bot = m.bot(ticket.get().bot());
             if (bot.isEmpty() || bot.get().player.isDeadOrDying()) continue;
             try {
-                if (!think(bot.get(), ticket.get(), now)) return;
+                if (!think(bot.get(), ticket.get(), now)) unsent.add(ticket.get().bot());
             } catch (RuntimeException e) {
                 m.fault(bot.get().name, "think", e);
                 bot.get().brain.failed(ticket.get().reason());
@@ -117,7 +121,8 @@ final class BrainScheduler {
         b.brain.dispatched(now);
         waitingSince.remove(b.name);
         int snapshotChars = snapshot.length();
-        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, null, outcome, err)));
+        int life = b.life;
+        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, life, ticket, snapshotChars, null, outcome, err)));
         return true;
     }
 
@@ -134,7 +139,8 @@ final class BrainScheduler {
         b.brain.dispatched(now);
         waitingSince.remove(b.name);
         int snapshotChars = snapshot.length();
-        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, options, outcome, err)));
+        int life = b.life;
+        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, life, ticket, snapshotChars, options, outcome, err)));
         return true;
     }
 
@@ -178,10 +184,11 @@ final class BrainScheduler {
         return out;
     }
 
-    private void apply(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options, LlmService.Outcome outcome, Throwable err) {
+    private void apply(Bot b, int life, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options,
+                       LlmService.Outcome outcome, Throwable err) {
         if (m.bot(b.name).orElse(null) != b) return; // removed or replaced while thinking
         try {
-            applyChecked(b, ticket, snapshotChars, options, outcome, err);
+            applyChecked(b, life, ticket, snapshotChars, options, outcome, err);
         } catch (RuntimeException e) {
             AiCiv.LOG.warn("AiCiv could not apply the reply for {}", b.name, e);
             JsonObject log = new JsonObject();
@@ -193,7 +200,7 @@ final class BrainScheduler {
         }
     }
 
-    private void applyChecked(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options,
+    private void applyChecked(Bot b, int life, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options,
                               LlmService.Outcome outcome, Throwable err) {
         JsonObject log = new JsonObject();
         log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
@@ -204,6 +211,13 @@ final class BrainScheduler {
         if (b.brain.paused()) {
             log.addProperty("discarded", "paused");
             b.brain.replied("paused");
+            m.decisionLog().append(b.name, log);
+            return;
+        }
+        if (b.life != life || b.player.isDeadOrDying()) {
+            // Decided for a life that has ended: the plan is about items and places the bot no longer has.
+            log.addProperty("discarded", "died");
+            b.brain.replied("nothing (died before the reply came)");
             m.decisionLog().append(b.name, log);
             return;
         }

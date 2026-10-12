@@ -1,9 +1,17 @@
 package com.aiciv.actions;
 
+import com.aiciv.bot.AiPlayer;
+import com.aiciv.nav.Goal;
+import com.aiciv.nav.NavStatus;
+import com.aiciv.nav.Navigator;
+import com.aiciv.world.BlockBreaker;
+import com.aiciv.world.KnownBlocks;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
+import net.minecraft.world.phys.Vec3;
 
 /** Runs one bot's queued actions in order, one at a time. Server thread only. */
 public final class ActionExecutor {
@@ -19,7 +27,7 @@ public final class ActionExecutor {
     }
 
     public void stop(BotContext ctx) {
-        if (current != null) current.cancel(ctx);
+        if (current != null) current.cancel(paused ? reflexOwned(ctx) : ctx);
         current = null;
         queue.clear();
         finished.clear();
@@ -96,6 +104,28 @@ public final class ActionExecutor {
                 return summary.toString();
             }
         }
+    }
+
+    /**
+     * While a reflex has the bot it is also driving the navigator, so a paused action that is replaced or stopped is
+     * cancelled through a view whose navigator ignores goTo and stop. Everything else (its own breaker) it still cleans up.
+     */
+    private static BotContext reflexOwned(BotContext ctx) {
+        Navigator nav = ctx.navigator();
+        Navigator hands = new Navigator() {
+            @Override public void goTo(Goal goal) {}
+            @Override public NavStatus status() { return nav.status(); }
+            @Override public void stop() {}
+        };
+        return new BotContext() {
+            @Override public Vec3 position() { return ctx.position(); }
+            @Override public Optional<Vec3> playerPosition(String name) { return ctx.playerPosition(name); }
+            @Override public Navigator navigator() { return hands; }
+            @Override public void say(String text) { ctx.say(text); }
+            @Override public AiPlayer player() { return ctx.player(); }
+            @Override public KnownBlocks knownBlocks() { return ctx.knownBlocks(); }
+            @Override public BlockBreaker breaker() { return ctx.breaker(); }
+        };
     }
 
     /** An action that throws fails instead of rethrowing into the server tick on every later tick. */

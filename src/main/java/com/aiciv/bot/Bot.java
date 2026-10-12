@@ -20,7 +20,9 @@ public final class Bot {
     public final KnownBlocks knownBlocks = new KnownBlocks(128);
     public final ReflexController reflexes = new ReflexController();
     public BotContext context;
-    /** Set between a death and the respawn on the next tick. */
+    /** Counts deaths, so a reply asked for in an earlier life is dropped. */
+    int life;
+        /** Set between a death and the respawn on the next tick. */
     Death death;
 
     record Death(String message, int x, int y, int z) {}
