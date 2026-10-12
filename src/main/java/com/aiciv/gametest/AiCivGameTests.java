@@ -848,4 +848,40 @@ public final class AiCivGameTests {
             removeBot(manager[0], "TestExplore");
         });
     }
+
+    @GameTest(maxTicks = 1200)
+    public void menuBotFollowsItsChoice(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        for (int y = 1; y <= 4; y++) helper.setBlock(5, y, 5, Blocks.BIRCH_LOG);
+        JsonObject turn = JsonParser.parseString("""
+                {"tool_calls": [{"id": "1", "type": "function",
+                  "function": {"name": "choose", "arguments": "{\\"option\\": \\"mine_birch_log\\"}"}}]}""").getAsJsonObject();
+        ScriptedBackend backend = new ScriptedBackend(List.of(turn));
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        AiCivConfig config = AiCivConfig.GSON.fromJson("""
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"scripted-menu": {"provider": "scripted", "model": "script", "decisionMode": "menu"}},
+                 "defaultModel": "scripted-menu"}""", AiCivConfig.class);
+        LlmService llm = new LlmService(config, Map.of("scripted", backend), Clock.systemUTC());
+        BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm,
+                dir.resolve("roster.json"), new DecisionLog(dir.resolve("logs")), Clock.systemUTC());
+        Bot bot = manager.spawn("TestMenuBot", "scripted-menu", "", helper.getLevel(), helper.absoluteVec(new Vec3(2.5, 1, 2.5)));
+        helper.onEachTick(() -> {
+            manager.tickStart();
+            manager.tickEnd();
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(InventoryOps.count(bot.player, s -> s.is(Items.BIRCH_LOG)) >= 1, "bot holds no birch_log; " + events(bot));
+            JsonObject request = backend.requests().get(0);
+            helper.assertTrue(request.getAsJsonArray("tools").size() == 1, "menu request did not carry the choose tool");
+            String log;
+            try {
+                log = Files.readString(dir.resolve("logs").resolve("TestMenuBot.jsonl"));
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException(e);
+            }
+            helper.assertTrue(log.contains("\"mode\":\"menu\"") && log.contains("\"option\":\"mine_birch_log\""), log);
+            removeBot(manager, "TestMenuBot");
+        });
+    }
 }

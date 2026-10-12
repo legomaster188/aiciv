@@ -52,6 +52,29 @@ Gemini counts thinking tokens against `maxTokens`, so `gemini-flash` ships with 
 Gemini model still returns empty replies, check `finish_reason` in the decision log: `length`
 means the budget ran out. Raise `maxTokens` or add `"extra": {"reasoning_effort": "none"}`.
 
+## Menu mode and decision models (Jev)
+
+A model with `"decisionMode": "menu"` does not call action functions. Each turn the mod builds a short
+menu of options from the bot's situation (mine a nearby block, craft, eat, attack a mob, go to or follow a
+player, explore N/E/S/W, say hi, wait) and the model picks one id. Any chat model can run this way (it gets
+one forced `choose` tool), which makes it easy to compare models on the same choices. Providers of
+`"type": "typesafe"` are decision models such as TypeSafe AI's Jev: they return one choice plus per-option
+probabilities and always use menu mode. The decision log gains `mode`, `option`, `probabilities` and `confidence`.
+`decisionsPath` is where decisions are posted under `baseUrl` (default `/v1/systemone`).
+
+```json
+"providers": {
+  "jev-or": { "type": "typesafe", "baseUrl": "https://openrouter.ai", "decisionsPath": "/api/alpha/decisions", "key": "openrouter", "rpm": 30, "rpd": 0, "timeoutSeconds": 15 },
+  "typesafe": { "type": "typesafe", "baseUrl": "https://api.typesafe.ai", "key": "typesafe", "rpm": 60, "rpd": 0, "timeoutSeconds": 10 }
+},
+"models": {
+  "jev": { "provider": "jev-or", "model": "typesafe/jev-1.13", "decisionMode": "menu" },
+  "gemma-menu": { "provider": "gemma", "model": "gemma-4-26b-a4b-it", "decisionMode": "menu" }
+}
+```
+
+On OpenRouter use `typesafe/jev-1.13`; `typesafe/jev-router` is a chat router to other models, not Jev.
+
 ## Commands (op level 2)
 
 In singleplayer, `/ai` needs cheats enabled for the world.

@@ -25,6 +25,24 @@ public final class PromptBuilder {
                 %s""".formatted(name, others.size() + 1, people, who, aim, maxActions, toolGuide);
     }
 
+    /** Instructions for a menu-mode decision: who the bot is and that it must pick exactly one listed option. */
+    public static String menuSystem(String name, String persona, String goal, List<String> others) {
+        String people = others.isEmpty() ? "nobody else yet" : String.join(", ", others);
+        String who = persona == null || persona.isBlank() ? "friendly and curious" : persona;
+        String aim = goal == null || goal.isBlank() ? "help the settlement survive and grow" : goal;
+        return ("You are %s, a player in a Minecraft survival world, founding a settlement with: %s. "
+                + "Personality: %s. Long-term goal: %s. You play like a normal survival player. "
+                + "Pick the single best next action for %s from the listed options.").formatted(name, people, who, aim, name);
+    }
+
+    public static String menuUser(List<String> events, String snapshot) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(events.isEmpty() ? "Recent events: none\n" : "Recent events (oldest first):\n" + bullets(events));
+        sb.append('\n');
+        sb.append("Your situation now:\n").append(snapshot);
+        return sb.toString();
+    }
+
     public static String user(List<String> notes, List<String> events, String snapshot) {
         StringBuilder sb = new StringBuilder();
         sb.append(notes.isEmpty() ? "Your notes: none\n" : "Your notes:\n" + bullets(notes));

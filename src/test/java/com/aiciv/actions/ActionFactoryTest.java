@@ -38,7 +38,7 @@ class ActionFactoryTest {
     void unknownActionListsTheRealOnes() {
         String r = invalid(call("fly", "{}"));
         assertTrue(r.contains("unknown action 'fly'"), r);
-        assertTrue(r.contains("say, goTo, goToPlayer, follow, stop"), r);
+        assertTrue(r.contains("say, goTo, goToPlayer, follow, explore, mine, collect, stop"), r);
     }
 
     @Test
@@ -75,5 +75,17 @@ class ActionFactoryTest {
             String name = t.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
             assertFalse(ActionFactory.create(ToolCall.of(name, new JsonObject())).toString().contains("unknown action"), name);
         }
+    }
+
+    @Test
+    void exploreMineAndCollectAreBuiltWithClampedNumbers() {
+        assertEquals(ExploreAction.class, ok(call("explore", "{\"direction\": \"N\", \"distance\": 999}")).getClass());
+        assertTrue(ok(call("explore", "{\"direction\": \"N\"}")).describe().contains("64"));
+        assertTrue(ok(call("explore", "{\"direction\": \"N\", \"distance\": 999}")).describe().contains("128"));
+        assertTrue(invalid(call("explore", "{\"direction\": \"up\"}")).contains("direction"));
+        assertTrue(ok(call("mine", "{\"block\": \"oak_log\", \"count\": 500}")).describe().contains("64"));
+        assertTrue(invalid(call("mine", "{}")).contains("block"));
+        assertInstanceOf(CollectAction.class, ok(call("collect", "{\"item\": \"oak_log\"}")));
+        assertTrue(invalid(call("collect", "{}")).contains("item"));
     }
 }

@@ -28,7 +28,7 @@ public final class AiCivConfig {
     public int maxActionsPerDecision = 6;
 
     public static final class ProviderConfig {
-        /** "openai" for any OpenAI-compatible HTTP API, "scripted" for canned replies. */
+        /** "openai" for any OpenAI-compatible HTTP API, "typesafe" for a TypeSafe (Jev) decision API, "scripted" for canned replies. */
         public String type = "openai";
         public String baseUrl = "";
         /** Name of the key in keys.json, or null when the provider needs none. */
@@ -41,6 +41,8 @@ public final class AiCivConfig {
         public int maxInFlight = 2;
         /** HTTP request timeout; raise for slow models. Values under 5 are treated as 5. */
         public int timeoutSeconds = 30;
+        /** Typesafe providers only: where decisions are posted under baseUrl ("/api/alpha/decisions" on OpenRouter). */
+        public String decisionsPath = "/v1/systemone";
         /** Scripted providers only: a JSON file next to aiciv.json. */
         public String script;
 
@@ -61,6 +63,8 @@ public final class AiCivConfig {
         public String model;
         public String fallback;
         public int maxTokens = 1000;
+        /** "tools" (the model calls action functions) or "menu" (it picks one option from a short list). Typesafe providers always use menu. */
+        public String decisionMode = "tools";
         /** Extra request fields merged into the body, for example {"reasoning_effort": "none"}. */
         public JsonObject extra = new JsonObject();
 
@@ -103,6 +107,7 @@ public final class AiCivConfig {
         if (c.models == null) c.models = new LinkedHashMap<>();
         for (ModelConfig m : c.models.values()) {
             if (m.extra == null) m.extra = new JsonObject();
+            if (m.decisionMode == null) m.decisionMode = "tools";
         }
         return c;
     }
@@ -118,6 +123,9 @@ public final class AiCivConfig {
             if (m.model == null || m.model.isBlank()) {
                 problems.add("model '" + e.getKey() + "' has no model id");
             }
+            if (!"tools".equals(m.decisionMode) && !"menu".equals(m.decisionMode)) {
+                problems.add("model '" + e.getKey() + "' has unknown decisionMode '" + m.decisionMode + "' (use tools or menu)");
+            }
             if (m.fallback != null && !models.containsKey(m.fallback)) {
                 problems.add("model '" + e.getKey() + "' falls back to unknown model '" + m.fallback + "'");
             }
@@ -126,7 +134,7 @@ public final class AiCivConfig {
             ProviderConfig p = e.getValue();
             if ("scripted".equals(p.type)) {
                 if (p.script == null || p.script.isBlank()) problems.add("scripted provider '" + e.getKey() + "' has no script file");
-            } else if (!"openai".equals(p.type)) {
+            } else if (!"openai".equals(p.type) && !"typesafe".equals(p.type)) {
                 problems.add("provider '" + e.getKey() + "' has unknown type '" + p.type + "'");
             } else if (p.baseUrl == null || p.baseUrl.isBlank()) {
                 problems.add("provider '" + e.getKey() + "' has no baseUrl");
@@ -143,6 +151,14 @@ public final class AiCivConfig {
             problems.add("defaultModel '" + defaultModel + "' is not a configured model");
         }
         return problems;
+    }
+
+    /** True when the model picks from an option menu: configured so, or served by a typesafe (decision-only) provider. */
+    public boolean isMenuMode(String modelKey) {
+        ModelConfig m = models.get(modelKey);
+        if (m == null) return false;
+        ProviderConfig p = providers.get(m.provider);
+        return "menu".equals(m.decisionMode) || (p != null && "typesafe".equals(p.type));
     }
 
     private static boolean isHttpUrl(String url) {
