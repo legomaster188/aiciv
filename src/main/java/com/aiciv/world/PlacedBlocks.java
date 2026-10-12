@@ -94,6 +94,11 @@ public final class PlacedBlocks {
         return at(level, pos).isPresent();
     }
 
+    /** Placed by someone other than {@code me}; a bot may take down its own pillars and bridges like a player would. */
+    public boolean isPlacedByOther(ServerLevel level, BlockPos pos, String me) {
+        return at(level, pos).map(p -> !p.placer().equals(me)).orElse(false);
+    }
+
     /** Blocks {@code placer} placed in this level at or after {@code tick} that are still there, oldest first. */
     public List<BlockPos> placedSince(ServerLevel level, String placer, long tick) {
         List<BlockPos> out = new ArrayList<>();

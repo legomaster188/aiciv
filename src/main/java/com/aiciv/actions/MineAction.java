@@ -230,7 +230,7 @@ public final class MineAction implements Action {
     private static boolean diggable(AiPlayer player, ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         if (state.getDestroySpeed(level, pos) < 0 || !level.mayInteract(player, pos) || level.getBlockEntity(pos) != null) return false;
-        if (PlacedBlocks.of(level.getServer()).isPlaced(level, pos)) return false;
+        if (PlacedBlocks.of(level.getServer()).isPlacedByOther(level, pos, player.getScoreboardName())) return false;
         if (pos.equals(player.blockPosition().below())) return false;
         for (Direction d : Direction.values()) {
             if (!level.getFluidState(pos.relative(d)).isEmpty()) return false;

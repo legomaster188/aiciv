@@ -61,8 +61,8 @@ public final class LevelBlockView implements BlockView {
         if (s == null || !s.getFluidState().isEmpty() || s.hasBlockEntity() || dangerous(x, y, z)) {
             return Double.POSITIVE_INFINITY;
         }
-        // Someone built this; a bot walks around it rather than through it.
-        if (PlacedBlocks.of(level.getServer()).isPlaced(level, cursor)) return Double.POSITIVE_INFINITY;
+        // Someone else built this; a bot walks around it rather than through it.
+        if (PlacedBlocks.of(level.getServer()).isPlacedByOther(level, cursor, player.getScoreboardName())) return Double.POSITIVE_INFINITY;
         Double cached = breakTimes.get(s);
         if (cached != null) return cached;
         double seconds = BreakTime.seconds(s, s.getDestroySpeed(level, cursor), InventoryOps.bestToolFor(player, s));
