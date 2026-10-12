@@ -1,6 +1,9 @@
 package com.aiciv.world;
 
 import com.aiciv.bot.AiPlayer;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.function.Predicate;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.BlockPos;
@@ -50,5 +53,27 @@ public final class BlockPlacer {
             p.setShiftKeyDown(wasSneaking);
         }
         return level.getBlockState(target).canBeReplaced() ? PlaceResult.REFUSED : PlaceResult.PLACED;
+    }
+
+    /** Puts the item on a free floor cell within 2 blocks of the bot's feet (not its own), nearest first. Null when none works. */
+    public static BlockPos placeNearby(AiPlayer p, Predicate<ItemStack> item) {
+        ServerLevel level = (ServerLevel) p.level();
+        BlockPos feet = p.blockPosition();
+        List<BlockPos> cells = new ArrayList<>();
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                BlockPos cell = feet.offset(dx, 0, dz);
+                if (level.getBlockState(cell).canBeReplaced() && level.getFluidState(cell).isEmpty()
+                        && !level.getBlockState(cell.below()).canBeReplaced()) {
+                    cells.add(cell);
+                }
+            }
+        }
+        cells.sort(Comparator.comparingDouble(c -> c.distSqr(feet)));
+        for (BlockPos cell : cells) {
+            if (place(p, cell, item) == PlaceResult.PLACED) return cell;
+        }
+        return null;
     }
 }
