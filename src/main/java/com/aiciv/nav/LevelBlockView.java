@@ -13,6 +13,7 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /** Reads a loaded level for the pathfinder. Unloaded blocks count as solid and dangerous. */
@@ -42,7 +43,20 @@ public final class LevelBlockView implements BlockView {
     @Override
     public boolean passable(int x, int y, int z) {
         BlockState s = at(x, y, z);
-        return s != null && s.getCollisionShape(level, cursor).isEmpty();
+        if (s == null) return false;
+        // An open door only has a thin slab on one edge; the walker goes down the middle.
+        return s.getCollisionShape(level, cursor).isEmpty() || isOpenDoor(s);
+    }
+
+    private static boolean isOpenDoor(BlockState s) {
+        return s.is(BlockTags.WOODEN_DOORS) && s.hasProperty(BlockStateProperties.OPEN) && s.getValue(BlockStateProperties.OPEN);
+    }
+
+    @Override
+    public boolean openable(int x, int y, int z) {
+        BlockState s = at(x, y, z);
+        return s != null && (s.is(BlockTags.WOODEN_DOORS) || s.is(BlockTags.FENCE_GATES))
+                && s.hasProperty(BlockStateProperties.OPEN) && !s.getValue(BlockStateProperties.OPEN);
     }
 
     @Override
@@ -58,7 +72,8 @@ public final class LevelBlockView implements BlockView {
     public double breakSeconds(int x, int y, int z) {
         if (player == null) return Double.POSITIVE_INFINITY;
         BlockState s = at(x, y, z);
-        if (s == null || !s.getFluidState().isEmpty() || s.hasBlockEntity() || dangerous(x, y, z)) {
+        if (s == null || !s.getFluidState().isEmpty() || s.hasBlockEntity() || dangerous(x, y, z)
+                || s.is(BlockTags.DOORS) || s.is(BlockTags.TRAPDOORS) || s.is(BlockTags.FENCE_GATES)) {
             return Double.POSITIVE_INFINITY;
         }
         // Someone else built this; a bot walks around it rather than through it.

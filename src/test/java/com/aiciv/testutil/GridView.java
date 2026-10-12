@@ -12,6 +12,7 @@ public final class GridView implements BlockView {
     private final Set<Pos> solid = new HashSet<>();
     private final Set<Pos> danger = new HashSet<>();
     private final Set<Pos> water = new HashSet<>();
+    private final Set<Pos> openable = new HashSet<>();
     private final Map<Pos, Double> breakSeconds = new HashMap<>();
 
     public GridView floor(int x0, int x1, int y, int z0, int z1) {
@@ -52,6 +53,16 @@ public final class GridView implements BlockView {
         return this;
     }
 
+    /** A closed two-block-tall wooden door: solid, unbreakable, openable. */
+    public GridView door(int x, int y, int z) {
+        for (int dy = 0; dy <= 1; dy++) {
+            solid.add(new Pos(x, y + dy, z));
+            openable.add(new Pos(x, y + dy, z));
+        }
+        return this;
+    }
+
+    @Override public boolean openable(int x, int y, int z) { return openable.contains(new Pos(x, y, z)); }
     @Override public double breakSeconds(int x, int y, int z) {
         return breakSeconds.getOrDefault(new Pos(x, y, z), Double.POSITIVE_INFINITY);
     }

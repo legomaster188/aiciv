@@ -225,4 +225,29 @@ class PathSearchTest {
         assertEquals(PathSearch.State.FAILED, s.advance(100));
         assertEquals("cancelled", s.failure());
     }
+
+    @Test
+    void opensADoorInAWall() {
+        for (SearchOptions o : List.of(SearchOptions.WALK_ONLY, new SearchOptions(true, true))) {
+            GridView g = new GridView().floor(0, 6, 0, 0, 2).door(3, 1, 1);
+            for (int z = 0; z <= 2; z += 2) g.solid(3, 1, z).solid(3, 2, z);
+            PathSearch s = run(g, new Pos(0, 1, 1), at(5, 1, 1), o);
+            assertEquals(PathSearch.State.FOUND, s.state(), o.toString());
+            PathStep step = s.steps().stream().filter(st -> st.to().x() == 3).findFirst().orElseThrow();
+            assertEquals(new Pos(3, 1, 1), step.open());
+            assertTrue(s.steps().stream().allMatch(st -> st.breaks().isEmpty()), s.steps().toString());
+        }
+    }
+
+    @Test
+    void neverBreaksADoor() {
+        // An iron door: closed, unbreakable, and not openable by hand.
+        for (SearchOptions o : List.of(SearchOptions.WALK_ONLY, new SearchOptions(true, false))) {
+            GridView g = new GridView().floor(0, 6, 0, 0, 2).solid(3, 1, 1).solid(3, 2, 1);
+            for (int z = 0; z <= 2; z += 2) g.solid(3, 1, z).solid(3, 2, z);
+            PathSearch s = run(g, new Pos(0, 1, 1), at(5, 1, 1), o);
+            assertEquals(PathSearch.State.FAILED, s.state(), o.toString());
+            assertTrue(s.steps().isEmpty());
+        }
+    }
 }

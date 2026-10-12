@@ -3,11 +3,15 @@ package com.aiciv.nav;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockPlacer;
+import com.aiciv.world.BlockUse;
 import com.aiciv.world.InventoryOps;
 import java.util.List;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.phys.AABB;
 
 /** Steers a fake player along path steps: walks, digs, bridges, pillars and swims by setting input each tick. */
 public final class PathFollower {
@@ -26,6 +30,12 @@ public final class PathFollower {
     private int index;
     private double best = Double.MAX_VALUE;
     private int idle;
+    /** Door clicks: tries for the current door and the ticks to wait before the next one. */
+    private int doorTries, doorWait;
+    /** A door this follower opened, and the step index it was in; closed again once the bot is one step past. */
+    private BlockPos closeDoor;
+    private int closeIndex;
+    private int closeTries, closeWait;
 
     public PathFollower(List<PathStep> steps, BlockBreaker breaker) {
         this.steps = steps;
@@ -33,6 +43,7 @@ public final class PathFollower {
     }
 
     public Step tick(AiPlayer p) {
+        if (finishingDoor(p)) return Step.MOVING;
         while (index < steps.size()) {
             PathStep step = steps.get(index);
             Pos n = step.to();
@@ -45,6 +56,11 @@ public final class PathFollower {
                 best = Double.MAX_VALUE;
                 idle = 0;
                 continue;
+            }
+
+            if (step.open() != null && isClosed(p, toPos(step.open()))) {
+                Step opening = openDoor(p, step);
+                if (opening != null) return opening;
             }
 
             BlockPos dig = nextBreak(p, step);
@@ -93,8 +109,66 @@ public final class PathFollower {
                     || (p.onGround() && (dy > 0.5 || p.horizontalCollision)));
             return countIdle(p, horiz + Math.abs(dy));
         }
+        if (finishingDoor(p)) return Step.MOVING;
         p.stopMoving();
         return Step.ARRIVED;
+    }
+
+    private static boolean isClosed(AiPlayer p, BlockPos pos) {
+        BlockState s = p.level().getBlockState(pos);
+        return s.hasProperty(BlockStateProperties.OPEN) && !s.getValue(BlockStateProperties.OPEN);
+    }
+
+    /** Stops in front of a closed door or gate and clicks it, up to three times. Null once it is open. */
+    private Step openDoor(AiPlayer p, PathStep step) {
+        BlockPos door = toPos(step.open());
+        p.stopMoving();
+        if (doorWait > 0) {
+            doorWait--;
+            return Step.MOVING;
+        }
+        if (doorTries >= 3) return stuck(p);
+        doorTries++;
+        doorWait = 5;
+        BlockUse.click(p, door);
+        if (isClosed(p, door)) return Step.MOVING;
+        doorTries = 0;
+        doorWait = 0;
+        closeDoor = door;
+        closeIndex = index;
+        return null;
+    }
+
+    /** True while this follower is still shutting the door the bot came through (the navigator keeps ticking it). */
+    boolean finishingDoor(AiPlayer p) {
+        return closeDoor != null && index > closeIndex && clearOfDoor(p) && closeBehind(p);
+    }
+
+    /** The feet have left the door's cell, so the door can swing shut behind the bot. */
+    private boolean clearOfDoor(AiPlayer p) {
+        BlockPos feet = p.blockPosition();
+        return feet.getX() != closeDoor.getX() || feet.getZ() != closeDoor.getZ();
+    }
+
+    /** Shuts the door the bot came through. True while it is still trying. Gives up quietly. */
+    private boolean closeBehind(AiPlayer p) {
+        BlockPos door = closeDoor;
+        BlockState s = p.level().getBlockState(door);
+        boolean stillOpen = s.hasProperty(BlockStateProperties.OPEN) && s.getValue(BlockStateProperties.OPEN);
+        boolean occupied = !p.level().getEntitiesOfClass(Entity.class, new AABB(door), e -> e != p).isEmpty();
+        if (!stillOpen || occupied || closeTries >= 3) {
+            closeDoor = null;
+            return false;
+        }
+        p.stopMoving();
+        if (closeWait > 0) {
+            closeWait--;
+            return true;
+        }
+        closeTries++;
+        closeWait = 5;
+        BlockUse.click(p, door);
+        return true;
     }
 
     private boolean arrived(PathStep step, AiPlayer p, double horiz, double dy) {
