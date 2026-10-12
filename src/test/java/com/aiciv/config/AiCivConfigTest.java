@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -82,5 +83,36 @@ class AiCivConfigTest {
              "defaultModel": "m"}""");
         String problems = String.join("\n", AiCivConfig.loadOrCreate(file).validate());
         assertTrue(problems.contains("provider 'q' baseUrl must start with http:// or https://"), problems);
+    }
+
+    @Test
+    void typesafeProvidersAreValidAndForceMenuMode() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"jev-or": {"type": "typesafe", "baseUrl": "https://openrouter.ai", "decisionsPath": "/api/alpha/decisions", "key": "openrouter"},
+                           "chat": {"baseUrl": "http://localhost:1/v1"}},
+             "models": {"jev": {"provider": "jev-or", "model": "typesafe/jev-1.13"},
+                        "menu-chat": {"provider": "chat", "model": "x", "decisionMode": "menu"},
+                        "tools-chat": {"provider": "chat", "model": "x"}},
+             "defaultModel": "tools-chat"}""");
+        AiCivConfig c = AiCivConfig.loadOrCreate(file);
+        assertEquals(List.of(), c.validate());
+        assertEquals("/api/alpha/decisions", c.providers.get("jev-or").decisionsPath);
+        assertEquals("/v1/systemone", c.providers.get("chat").decisionsPath);
+        assertTrue(c.isMenuMode("jev"));
+        assertTrue(c.isMenuMode("menu-chat"));
+        assertFalse(c.isMenuMode("tools-chat"));
+        assertFalse(c.isMenuMode("unknown"));
+    }
+
+    @Test
+    void validateRejectsAnUnknownDecisionMode() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"q": {"baseUrl": "http://localhost:1/v1"}},
+             "models": {"m": {"provider": "q", "model": "x", "decisionMode": "psychic"}},
+             "defaultModel": "m"}""");
+        String problems = String.join("\n", AiCivConfig.loadOrCreate(file).validate());
+        assertTrue(problems.contains("unknown decisionMode 'psychic'"), problems);
     }
 }

@@ -14,9 +14,9 @@ public final class ActionFactory {
         record Invalid(String reason) implements Result {}
     }
 
-    static final String AVAILABLE = "say, goTo, goToPlayer, follow, stop";
+    static final String AVAILABLE = "say, goTo, goToPlayer, follow, explore, mine, collect, stop";
     static final int WORLD_LIMIT = 29_999_984;
-    private static final Set<String> KNOWN = Set.of("say", "goto", "gotoplayer", "follow", "stop");
+    private static final Set<String> KNOWN = Set.of("say", "goto", "gotoplayer", "follow", "explore", "mine", "collect", "stop");
 
     private ActionFactory() {}
 
@@ -48,6 +48,23 @@ public final class ActionFactory {
                 if (name == null || name.isBlank()) return invalid("follow needs a player \"name\"");
                 Integer seconds = integer(a, "seconds");
                 return new Result.Ok(new FollowAction(name.trim(), seconds == null ? 60 : seconds));
+            }
+            case "explore": {
+                String direction = str(a, "direction");
+                if (!ExploreAction.isDirection(direction)) return invalid("explore needs a \"direction\": N, NE, E, SE, S, SW, W or NW");
+                Integer distance = integer(a, "distance");
+                return new Result.Ok(new ExploreAction(direction, distance == null ? 64 : Math.max(1, Math.min(128, distance))));
+            }
+            case "mine": {
+                String block = str(a, "block");
+                if (block == null || block.isBlank()) return invalid("mine needs a \"block\" name, e.g. oak_log, stone or iron_ore");
+                Integer count = integer(a, "count");
+                return new Result.Ok(new MineAction(block, count == null ? 1 : Math.max(1, Math.min(64, count))));
+            }
+            case "collect": {
+                String item = str(a, "item");
+                if (item == null || item.isBlank()) return invalid("collect needs an \"item\" name");
+                return new Result.Ok(new CollectAction(item));
             }
             default:
                 return new Result.Ok(new StopAction());

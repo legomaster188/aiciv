@@ -5,23 +5,35 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.SayAction;
 import com.aiciv.actions.ToolCatalog;
+import com.aiciv.brain.MenuOption;
+import com.aiciv.brain.OptionMenu;
+import com.aiciv.brain.OptionMenu.MenuContext;
 import com.aiciv.brain.PromptBuilder;
 import com.aiciv.brain.ThinkQueue;
 import com.aiciv.brain.WakeReason;
 import com.aiciv.llm.LlmService;
+import com.aiciv.llm.MenuReply;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.perception.Perceiver;
+import com.aiciv.perception.Sighting;
+import com.aiciv.perception.SnapshotData;
 import com.aiciv.perception.SnapshotFormatter;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.item.ItemStack;
 
 /** Wakes bots, gives queued bots their LLM turn when a provider is free, and applies the replies. */
 final class BrainScheduler {
@@ -88,9 +100,9 @@ final class BrainScheduler {
     }
 
     private boolean think(Bot b, ThinkQueue.Ticket ticket, long now) {
-        String snapshot = SnapshotFormatter.format(
-                Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks),
-                SnapshotFormatter.MAX_CHARS);
+        SnapshotData data = Perceiver.capture(b.player, b.executor.currentDescription(), b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks);
+        String snapshot = SnapshotFormatter.format(data, SnapshotFormatter.MAX_CHARS);
+        if (m.llm().menuMode(b.brain.modelKey())) return thinkMenu(b, ticket, now, data, snapshot);
         String system = PromptBuilder.system(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b),
                 m.config().maxActionsPerDecision, ToolCatalog.guide());
         String user = PromptBuilder.user(List.of(), b.brain.events().lines(), snapshot);
@@ -102,14 +114,57 @@ final class BrainScheduler {
         b.brain.dispatched(now);
         waitingSince.remove(b.name);
         int snapshotChars = snapshot.length();
-        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, outcome, err)));
+        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, null, outcome, err)));
         return true;
     }
 
-    private void apply(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, LlmService.Outcome outcome, Throwable err) {
+    /** Menu mode: the model picks one option from a short list built from the bot's situation. */
+    private boolean thinkMenu(Bot b, ThinkQueue.Ticket ticket, long now, SnapshotData data, String snapshot) {
+        List<MenuOption> options = OptionMenu.build(data, menuContext(b, data));
+        String system = PromptBuilder.menuSystem(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b));
+        String user = PromptBuilder.menuUser(b.brain.events().lines(), snapshot);
+        Optional<CompletableFuture<LlmService.Outcome>> sent = m.llm().trySendMenu(b.brain.modelKey(), system, user, options);
+        if (sent.isEmpty()) {
+            m.queue().offer(b.name, ticket.reason(), ticket.since());
+            return false;
+        }
+        b.brain.dispatched(now);
+        waitingSince.remove(b.name);
+        int snapshotChars = snapshot.length();
+        sent.get().whenComplete((outcome, err) -> m.server().execute(() -> apply(b, ticket, snapshotChars, options, outcome, err)));
+        return true;
+    }
+
+    private static MenuContext menuContext(Bot b, SnapshotData data) {
+        Map<String, Integer> inventory = new LinkedHashMap<>();
+        boolean hasFood = false;
+        boolean hasPickaxe = false;
+        for (ItemStack s : b.player.getInventory().getNonEquipmentItems()) {
+            if (s.isEmpty()) continue;
+            String id = BuiltInRegistries.ITEM.getKey(s.getItem()).getPath();
+            inventory.merge(id, s.getCount(), Integer::sum);
+            hasPickaxe |= id.endsWith("_pickaxe");
+        }
+        List<String> mineable = new ArrayList<>();
+        for (Sighting s : data.blocks()) mineable.add(s.label());
+        for (String r : data.remembered()) mineable.add(r.substring(0, r.indexOf(' ')));
+        if (hasPickaxe) mineable.add("stone");
+        List<String> hostile = new ArrayList<>();
+        for (Sighting s : data.mobs()) {
+            if (s.distance() > 16 || hostile.contains(s.label())) continue;
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.withDefaultNamespace(s.label()));
+            if (type.getCategory() == MobCategory.MONSTER) hostile.add(s.label());
+        }
+        List<String> players = new ArrayList<>();
+        for (Sighting s : data.players()) players.add(s.label().replaceAll(" \\[(AI|human)\\]$", ""));
+        // Task 7's CraftPlanner supplies craftable targets; until it is wired in, menus offer none.
+        return new MenuContext(inventory, List.of(), data.food() <= 12, hostile, players, mineable.stream().distinct().toList());
+    }
+
+    private void apply(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options, LlmService.Outcome outcome, Throwable err) {
         if (m.bot(b.name).orElse(null) != b) return; // removed or replaced while thinking
         try {
-            applyChecked(b, ticket, snapshotChars, outcome, err);
+            applyChecked(b, ticket, snapshotChars, options, outcome, err);
         } catch (RuntimeException e) {
             AiCiv.LOG.warn("AiCiv could not apply the reply for {}", b.name, e);
             JsonObject log = new JsonObject();
@@ -121,7 +176,8 @@ final class BrainScheduler {
         }
     }
 
-    private void applyChecked(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, LlmService.Outcome outcome, Throwable err) {
+    private void applyChecked(Bot b, ThinkQueue.Ticket ticket, int snapshotChars, List<MenuOption> options,
+                              LlmService.Outcome outcome, Throwable err) {
         JsonObject log = new JsonObject();
         log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
         log.addProperty("trigger", ticket.reason().name());
@@ -132,6 +188,11 @@ final class BrainScheduler {
             log.addProperty("discarded", "paused");
             b.brain.replied("paused");
             m.decisionLog().append(b.name, log);
+            return;
+        }
+
+        if (err == null && outcome instanceof LlmService.Outcome.Chosen chosen && options != null) {
+            applyChoice(b, log, options, chosen);
             return;
         }
 
@@ -151,11 +212,41 @@ final class BrainScheduler {
         log.addProperty("thought", reply.reply().thought());
         if (reply.reply().finishReason() != null) log.addProperty("finish_reason", reply.reply().finishReason());
         if (reply.reply().usage() != null) log.add("usage", reply.reply().usage());
+        runCalls(b, log, reply.reply().calls(), reply.reply().plainText(), reply.reply().finishReason());
+    }
+
+    /** Menu mode: runs the chosen option's call chain, or notes that the model named something the menu never offered. */
+    private void applyChoice(Bot b, JsonObject log, List<MenuOption> options, LlmService.Outcome.Chosen chosen) {
+        MenuReply reply = chosen.reply();
+        log.addProperty("mode", "menu");
+        log.addProperty("model", chosen.route().modelId());
+        log.addProperty("option", reply.optionId());
+        if (!reply.probabilities().isEmpty()) {
+            JsonObject probs = new JsonObject();
+            reply.probabilities().forEach(probs::addProperty);
+            log.add("probabilities", probs);
+        }
+        if (reply.confidence() != null) log.addProperty("confidence", reply.confidence());
+        MenuOption option = options.stream().filter(o -> o.id().equals(reply.optionId())).findFirst().orElse(null);
+        if (option == null) {
+            b.brain.note(m.stamp(), "you chose an unknown option '" + reply.optionId() + "'; nothing happened");
+            b.brain.replied("nothing");
+        } else if (option.calls().isEmpty()) {
+            b.brain.replied(option.id());
+        } else {
+            runCalls(b, log, option.calls(), null, null);
+            return;
+        }
+        m.decisionLog().append(b.name, log);
+    }
+
+    /** Turns calls into actions and starts them (talking aside), noting problems; shared by tools and menu mode. */
+    private void runCalls(Bot b, JsonObject log, List<ToolCall> callList, String plainText, String finishReason) {
         int max = m.config().maxActionsPerDecision;
         List<Action> actions = new ArrayList<>();
         List<String> problems = new ArrayList<>();
         JsonArray calls = new JsonArray();
-        for (ToolCall c : reply.reply().calls()) {
+        for (ToolCall c : callList) {
             JsonObject jc = new JsonObject();
             jc.addProperty("name", c.name());
             jc.add("args", c.args());
@@ -169,9 +260,9 @@ final class BrainScheduler {
                 case ActionFactory.Result.Invalid bad -> problems.add(bad.reason());
             }
         }
-        if (actions.isEmpty() && reply.reply().plainText() != null) actions.add(new SayAction(reply.reply().plainText()));
+        if (actions.isEmpty() && plainText != null) actions.add(new SayAction(plainText));
         log.add("calls", calls);
-        if (reply.reply().plainText() != null) log.addProperty("text", reply.reply().plainText());
+        if (plainText != null) log.addProperty("text", plainText);
         JsonArray problemsJson = new JsonArray();
         problems.forEach(problemsJson::add);
         log.add("problems", problemsJson);
@@ -179,7 +270,7 @@ final class BrainScheduler {
         String stamp = m.stamp();
         if (!problems.isEmpty()) b.brain.note(stamp, "problems with your last turn: " + String.join("; ", problems));
         if (actions.isEmpty()) {
-            if ("length".equals(reply.reply().finishReason())) {
+            if ("length".equals(finishReason)) {
                 AiCiv.LOG.warn("{}'s reply was cut off by max_tokens before any action", b.name);
                 b.brain.note(stamp, "your last reply was cut off before any action; reply with fewer words");
             } else {

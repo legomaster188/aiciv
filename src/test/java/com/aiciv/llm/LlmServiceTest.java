@@ -203,4 +203,70 @@ class LlmServiceTest {
         assertEquals(List.of(), s.routeProviders("nope"));
         assertTrue(s.providerStatus("a").startsWith("disabled: invalid baseUrl 'http://a b'"), s.providerStatus("a"));
     }
+
+    static final List<com.aiciv.brain.MenuOption> MENU = List.of(
+            new com.aiciv.brain.MenuOption("mine_oak_log", "mine 6 oak_log", List.of()),
+            new com.aiciv.brain.MenuOption("wait", "do nothing", List.of()));
+
+    static AiCivConfig menuConfig() {
+        return AiCivConfig.GSON.fromJson("""
+            {"providers": {"a": {"baseUrl": "http://a"}},
+             "models": {"menu": {"provider": "a", "model": "model-a", "decisionMode": "menu"}},
+             "defaultModel": "menu"}""", AiCivConfig.class);
+    }
+
+    @Test
+    void menuModeUsesChooseTool() throws Exception {
+        FakeBackend a = new FakeBackend();
+        a.results.add(ok("{\"tool_calls\": [{\"function\": {\"name\": \"choose\", \"arguments\": \"{\\\"option\\\": \\\"wait\\\"}\"}}]}"));
+        LlmService s = new LlmService(menuConfig(), Map.of("a", a), clock);
+        assertTrue(s.menuMode("menu"));
+        LlmService.Outcome.Chosen o = assertInstanceOf(LlmService.Outcome.Chosen.class,
+                s.trySendMenu("menu", "sys", "user text", MENU).orElseThrow().get());
+        assertEquals("wait", o.reply().optionId());
+        JsonObject body = a.bodies.get(0);
+        JsonArray tools = body.getAsJsonArray("tools");
+        assertEquals(1, tools.size());
+        JsonObject fn = tools.get(0).getAsJsonObject().getAsJsonObject("function");
+        assertEquals("choose", fn.get("name").getAsString());
+        JsonObject option = fn.getAsJsonObject("parameters").getAsJsonObject("properties").getAsJsonObject("option");
+        assertEquals("string", option.get("type").getAsString());
+        assertEquals(JsonParser.parseString("[\"mine_oak_log\", \"wait\"]"), option.getAsJsonArray("enum"));
+        assertEquals("option", fn.getAsJsonObject("parameters").getAsJsonArray("required").get(0).getAsString());
+        assertEquals("choose", body.getAsJsonObject("tool_choice").getAsJsonObject("function").get("name").getAsString());
+        String user = body.getAsJsonArray("messages").get(1).getAsJsonObject().get("content").getAsString();
+        assertTrue(user.startsWith("user text") && user.contains("mine_oak_log - mine 6 oak_log"), user);
+    }
+
+    @Test
+    void menuRepliesInJsonOrBareTextAreUnderstood() throws Exception {
+        for (String content : List.of("{\"content\": \"{\\\"option\\\": \\\"mine_oak_log\\\"}\"}",
+                "{\"content\": \"mine_oak_log\"}", "{\"content\": \"I think `mine_oak_log` is best.\"}")) {
+            FakeBackend a = new FakeBackend();
+            a.results.add(ok(content));
+            LlmService s = new LlmService(menuConfig(), Map.of("a", a), clock);
+            LlmService.Outcome.Chosen o = assertInstanceOf(LlmService.Outcome.Chosen.class,
+                    s.trySendMenu("menu", "sys", "u", MENU).orElseThrow().get());
+            assertEquals("mine_oak_log", o.reply().optionId(), content);
+        }
+    }
+
+    @Test
+    void anEmptyMenuReplyFails() throws Exception {
+        FakeBackend a = new FakeBackend();
+        a.results.add(ok("{}"));
+        LlmService s = new LlmService(menuConfig(), Map.of("a", a), clock);
+        assertInstanceOf(LlmService.Outcome.Failed.class, s.trySendMenu("menu", "sys", "u", MENU).orElseThrow().get());
+    }
+
+    @Test
+    void aTypesafeProviderIsNotUsedForChatRequests() throws Exception {
+        AiCivConfig c = AiCivConfig.GSON.fromJson("""
+            {"providers": {"jev": {"type": "typesafe", "baseUrl": "http://localhost:1"}},
+             "models": {"jev": {"provider": "jev", "model": "typesafe/jev-1.13"}}, "defaultModel": "jev"}""", AiCivConfig.class);
+        LlmService s = new LlmService(c, Map.of(), Map.of("jev", new TypesafeBackend("http://localhost:1", null, null, Duration.ofSeconds(5))), clock);
+        assertTrue(s.menuMode("jev"));
+        assertTrue(s.peek("jev").isPresent());
+        assertTrue(s.trySend("jev", "sys", "user", new JsonArray()).isEmpty());
+    }
 }

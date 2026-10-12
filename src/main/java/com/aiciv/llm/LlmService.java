@@ -1,5 +1,6 @@
 package com.aiciv.llm;
 
+import com.aiciv.brain.MenuOption;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.config.AiCivConfig.ModelConfig;
 import com.aiciv.config.AiCivConfig.ProviderConfig;
@@ -29,31 +30,43 @@ public final class LlmService {
         Route route();
 
         record Reply(Route route, LlmReply reply) implements Outcome {}
+        /** A menu-mode answer; the option id may still be one the menu did not offer. */
+        record Chosen(Route route, MenuReply reply) implements Outcome {}
         record RateLimited(Route route) implements Outcome {}
         record Failed(Route route, String reason) implements Outcome {}
     }
 
     private final AiCivConfig config;
     private final Map<String, ChatBackend> backends;
+    /** Decision-only providers (type "typesafe"); they take menus, never chat requests. */
+    private final Map<String, TypesafeBackend> menuBackends;
     private final Map<String, RateLimiter> limiters = new HashMap<>();
     private final Map<String, ProviderHealth> health = new HashMap<>();
 
     public LlmService(AiCivConfig config, Map<String, ChatBackend> backends, Clock clock) {
+        this(config, backends, Map.of(), clock);
+    }
+
+    public LlmService(AiCivConfig config, Map<String, ChatBackend> backends, Map<String, TypesafeBackend> menuBackends, Clock clock) {
         this.config = config;
         this.backends = Map.copyOf(backends);
+        this.menuBackends = Map.copyOf(menuBackends);
         for (Map.Entry<String, ProviderConfig> e : config.providers.entrySet()) {
             ProviderConfig p = e.getValue();
             limiters.put(e.getKey(), new RateLimiter(p.rpm, p.rpd, p.maxInFlight, zone(p.resetZone), clock));
             health.put(e.getKey(), new ProviderHealth(clock));
         }
         for (String provider : config.providers.keySet()) {
-            if (!this.backends.containsKey(provider)) health.get(provider).onAuthFailure("no backend configured");
+            if (!this.backends.containsKey(provider) && !this.menuBackends.containsKey(provider)) {
+                health.get(provider).onAuthFailure("no backend configured");
+            }
         }
     }
 
     /** Builds HTTP or scripted backends from config. Providers missing a key start disabled. */
     public static LlmService create(AiCivConfig config, KeyStore keys, Path configDir, Clock clock) {
         Map<String, ChatBackend> backends = new HashMap<>();
+        Map<String, TypesafeBackend> menuBackends = new HashMap<>();
         Map<String, String> disabled = new HashMap<>();
         for (Map.Entry<String, ProviderConfig> e : config.providers.entrySet()) {
             ProviderConfig p = e.getValue();
@@ -72,12 +85,16 @@ public final class LlmService {
                 key = k.orElse(null);
             }
             try {
-                backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, timeout(p)));
+                if ("typesafe".equals(p.type)) {
+                    menuBackends.put(e.getKey(), new TypesafeBackend(p.baseUrl, p.decisionsPath, key, timeout(p)));
+                } else {
+                    backends.put(e.getKey(), new HttpChatBackend(p.baseUrl, key, timeout(p)));
+                }
             } catch (RuntimeException ex) {
                 disabled.put(e.getKey(), "invalid baseUrl '" + p.baseUrl + "': " + ex.getMessage());
             }
         }
-        LlmService service = new LlmService(config, backends, clock);
+        LlmService service = new LlmService(config, backends, menuBackends, clock);
         disabled.forEach((provider, reason) -> service.health.get(provider).onAuthFailure(reason));
         return service;
     }
@@ -109,15 +126,96 @@ public final class LlmService {
 
     /** Sends through the first available route, or returns empty when none can take a request now. */
     public Optional<CompletableFuture<Outcome>> trySend(String modelKey, String system, String user, JsonArray tools) {
+        return dispatch(modelKey,
+                r -> backends.get(r.providerKey()),
+                r -> {
+                    ModelConfig m = config.models.get(r.modelKey());
+                    return backends.get(r.providerKey()).send(ChatRequest.build(r.modelId(), system, user, tools, m.maxTokens, m.extra));
+                },
+                (r, body) -> new Outcome.Reply(r, ReplyParser.parse(body)));
+    }
+
+    /** Whether the model decides by picking from an option menu (see {@link AiCivConfig#isMenuMode}). */
+    public boolean menuMode(String modelKey) {
+        return config.isMenuMode(modelKey);
+    }
+
+    /**
+     * Sends a menu decision. A typesafe provider gets {@code user} as its state and {@code system} as its instructions;
+     * a chat model gets the options listed after {@code user} and one forced {@code choose(option)} tool.
+     */
+    public Optional<CompletableFuture<Outcome>> trySendMenu(String modelKey, String system, String user, List<MenuOption> options) {
+        List<String> ids = options.stream().map(MenuOption::id).toList();
+        return dispatch(modelKey,
+                r -> menuBackends.containsKey(r.providerKey()) ? menuBackends.get(r.providerKey()) : backends.get(r.providerKey()),
+                r -> {
+                    TypesafeBackend decider = menuBackends.get(r.providerKey());
+                    if (decider != null) return decider.choose(r.modelId(), user, options, system);
+                    ModelConfig m = config.models.get(r.modelKey());
+                    StringBuilder list = new StringBuilder(user).append("\n\nYour options (call choose with one id):\n");
+                    for (MenuOption o : options) list.append(o.id()).append(" - ").append(o.description()).append('\n');
+                    JsonObject body = ChatRequest.build(r.modelId(), system, list.toString(), chooseTool(ids), m.maxTokens, m.extra);
+                    if (!m.extra.has("tool_choice")) {
+                        JsonObject forced = new JsonObject();
+                        forced.addProperty("type", "function");
+                        JsonObject fn = new JsonObject();
+                        fn.addProperty("name", "choose");
+                        forced.add("function", fn);
+                        body.add("tool_choice", forced);
+                    }
+                    return backends.get(r.providerKey()).send(body);
+                },
+                (r, body) -> menuBackends.containsKey(r.providerKey())
+                        ? new Outcome.Chosen(r, TypesafeBackend.parse(body))
+                        : new Outcome.Chosen(r, MenuReply.fromChat(ReplyParser.parse(body), ids)));
+    }
+
+    private static JsonArray chooseTool(List<String> ids) {
+        JsonArray enumIds = new JsonArray();
+        ids.forEach(enumIds::add);
+        JsonObject option = new JsonObject();
+        option.addProperty("type", "string");
+        option.addProperty("description", "The id of the option to do next.");
+        option.add("enum", enumIds);
+        JsonObject properties = new JsonObject();
+        properties.add("option", option);
+        JsonArray required = new JsonArray();
+        required.add("option");
+        JsonObject params = new JsonObject();
+        params.addProperty("type", "object");
+        params.add("properties", properties);
+        params.add("required", required);
+        JsonObject function = new JsonObject();
+        function.addProperty("name", "choose");
+        function.addProperty("description", "Choose the one option to do next.");
+        function.add("parameters", params);
+        JsonObject tool = new JsonObject();
+        tool.addProperty("type", "function");
+        tool.add("function", function);
+        JsonArray tools = new JsonArray();
+        tools.add(tool);
+        return tools;
+    }
+
+    private interface Sender {
+        CompletableFuture<BackendResult> send(Route r);
+    }
+
+    private interface OkReader {
+        Outcome read(Route r, JsonObject body) throws ReplyFormatException;
+    }
+
+    /** The first route with a usable backend, a healthy provider and budget sends; empty when none can take a request now. */
+    private Optional<CompletableFuture<Outcome>> dispatch(String modelKey, java.util.function.Function<Route, Object> backendFor,
+                                                          Sender sender, OkReader reader) {
         for (Route r : routes(modelKey)) {
             ProviderHealth h = health.get(r.providerKey());
             RateLimiter limiter = limiters.get(r.providerKey());
+            if (backendFor.apply(r) == null) continue; // e.g. a decision-only provider asked for a chat request
             if (!h.available() || !limiter.tryAcquire()) continue;
-            ModelConfig m = config.models.get(r.modelKey());
             CompletableFuture<BackendResult> sent;
             try {
-                JsonObject body = ChatRequest.build(r.modelId(), system, user, tools, m.maxTokens, m.extra);
-                sent = backends.get(r.providerKey()).send(body);
+                sent = sender.send(r);
             } catch (RuntimeException e) {
                 // Nothing left the machine: free the slot and count a failure, so a bad URL cannot wedge the provider.
                 limiter.release();
@@ -128,7 +226,7 @@ public final class LlmService {
             }
             CompletableFuture<Outcome> f = sent.handle((result, err) -> {
                 limiter.release();
-                return settle(r, h, result, err);
+                return settle(r, h, result, err, reader);
             });
             return Optional.of(f);
         }
@@ -182,16 +280,16 @@ public final class LlmService {
         return out;
     }
 
-    private static Outcome settle(Route r, ProviderHealth h, BackendResult result, Throwable err) {
+    private static Outcome settle(Route r, ProviderHealth h, BackendResult result, Throwable err, OkReader reader) {
         if (err != null) {
             h.onFailure("internal error: " + err);
             return new Outcome.Failed(r, String.valueOf(err));
         }
         if (result instanceof BackendResult.Ok ok) {
             try {
-                LlmReply reply = ReplyParser.parse(ok.body());
+                Outcome outcome = reader.read(r, ok.body());
                 h.onSuccess();
-                return new Outcome.Reply(r, reply);
+                return outcome;
             } catch (ReplyFormatException e) {
                 h.onFailure(e.getMessage());
                 return new Outcome.Failed(r, e.getMessage());
