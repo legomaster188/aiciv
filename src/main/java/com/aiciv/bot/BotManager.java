@@ -336,6 +336,7 @@ public final class BotManager {
         b.breaker = breaker;
         b.navigator = new LevelNavigator(player, navBudget, breaker);
         b.context = new LiveContext(this, b); // builds the action breaker for the new player too
+        b.reflexes.reset(b); // a flee or eat from the old life must not keep the actions paused
         b.brain.actionsEnded(stamp(), String.format(Locale.ROOT, "you died: %s. Your items dropped at %d %d %d",
                 death.message(), death.x(), death.y(), death.z()));
     }
