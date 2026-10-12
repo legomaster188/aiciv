@@ -13,6 +13,9 @@ import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.perception.SnapshotFormatter;
+import com.aiciv.world.BlockBreaker;
+import com.aiciv.world.BlockPlacer;
+import com.aiciv.world.InventoryOps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.file.Files;
@@ -25,6 +28,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
@@ -291,5 +297,94 @@ public final class AiCivGameTests {
             server.setDefaultGameType(GameType.SURVIVAL);
         }
         helper.succeed();
+    }
+
+    /** Ticks a breaker on the stone at (3,1,3) and succeeds once the block is gone and the drops settled. */
+    private static void breakStone(GameTestHelper helper, String name, boolean withPickaxe, boolean expectDrop) {
+        stoneFloor(helper);
+        helper.setBlock(3, 1, 3, Blocks.STONE);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, name, () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), -90.0F);
+        if (withPickaxe) bot.getInventory().setItem(15, new ItemStack(Items.WOODEN_PICKAXE));
+        BlockPos stone = helper.absolutePos(new BlockPos(3, 1, 3));
+        BlockBreaker breaker = new BlockBreaker(bot);
+        breaker.start(stone);
+        int[] airSince = {-1};
+        int[] tick = {0};
+        helper.onEachTick(() -> {
+            tick[0]++;
+            if (breaker.busy()) {
+                BlockBreaker.Status status = breaker.tick();
+                if (status.state() == BlockBreaker.Status.State.FAILED) {
+                    server.getPlayerList().remove(bot);
+                    helper.fail("breaker failed: " + status.reason());
+                }
+            } else if (airSince[0] < 0) {
+                airSince[0] = tick[0];
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(airSince[0] >= 0 && tick[0] - airSince[0] >= 30, "block not broken and settled yet");
+            helper.assertTrue(helper.getLevel().getBlockState(stone).isAir(), "stone is still there");
+            boolean cobble = InventoryOps.has(bot, Items.COBBLESTONE, 1)
+                    || !helper.getLevel().getEntitiesOfClass(ItemEntity.class, bot.getBoundingBox().inflate(6),
+                            e -> e.getItem().is(Items.COBBLESTONE)).isEmpty();
+            helper.assertTrue(cobble == expectDrop, "cobblestone present = " + cobble + ", expected " + expectDrop);
+            if (withPickaxe) {
+                helper.assertTrue(bot.getInventory().getItem(bot.getInventory().getSelectedSlot()).is(Items.WOODEN_PICKAXE),
+                        "pickaxe was not selected");
+            }
+            server.getPlayerList().remove(bot);
+        });
+    }
+
+    @GameTest(maxTicks = 200)
+    public void breakerBreaksStoneWithPickaxeAndDropsCobblestone(GameTestHelper helper) {
+        breakStone(helper, "TestBreakPick", true, true);
+    }
+
+    @GameTest(maxTicks = 300)
+    public void breakerWithoutToolBreaksStoneButGetsNoDrop(GameTestHelper helper) {
+        breakStone(helper, "TestBreakHand", false, false);
+    }
+
+    @GameTest(maxTicks = 100)
+    public void placerPlacesDirtOnTheFloor(GameTestHelper helper) {
+        stoneFloor(helper);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestPlacer", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), 0.0F);
+        bot.getInventory().setItem(20, new ItemStack(Items.DIRT, 3));
+        BlockPos target = helper.absolutePos(new BlockPos(2, 1, 2));
+        helper.runAfterDelay(3, () -> {
+            BlockPlacer.PlaceResult placed = BlockPlacer.place(bot, target, s -> s.is(Items.DIRT));
+            BlockPlacer.PlaceResult again = BlockPlacer.place(bot, target, s -> s.is(Items.DIRT));
+            boolean dirt = helper.getLevel().getBlockState(target).is(Blocks.DIRT);
+            int left = InventoryOps.count(bot, s -> s.is(Items.DIRT));
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(placed == BlockPlacer.PlaceResult.PLACED, "first place gave " + placed);
+            helper.assertTrue(dirt, "no dirt at the target");
+            helper.assertTrue(left == 2, "bot has " + left + " dirt left");
+            helper.assertTrue(again == BlockPlacer.PlaceResult.OCCUPIED, "second place gave " + again);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void addOrDropNeverLosesItems(GameTestHelper helper) {
+        stoneFloor(helper);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestFull", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 3.5)), 0.0F);
+        for (int i = 0; i < 36; i++) bot.getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+        helper.runAfterDelay(3, () -> {
+            InventoryOps.addOrDrop(bot, new ItemStack(Items.DIRT, 5));
+            int dropped = helper.getLevel().getEntitiesOfClass(ItemEntity.class, bot.getBoundingBox().inflate(3),
+                    e -> e.getItem().is(Items.DIRT)).stream().mapToInt(e -> e.getItem().getCount()).sum();
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(dropped == 5, "dropped dirt count " + dropped);
+            helper.succeed();
+        });
     }
 }
