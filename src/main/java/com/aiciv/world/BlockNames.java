@@ -12,10 +12,16 @@ public final class BlockNames {
 
     private BlockNames() {}
 
-    /** Matches block ids given without the {@code minecraft:} prefix. */
+    /** A tree trunk: any {@code _log}, or a nether {@code _stem} (not mushroom, melon or pumpkin stems). */
+    public static boolean isLog(String id) {
+        return id.endsWith("_log") || (id.endsWith("_stem") && (id.contains("crimson") || id.contains("warped")));
+    }
+
+    /** Matches block ids given without the {@code minecraft:} prefix. A blank or missing query matches nothing. */
     public static Predicate<String> matcher(String query) {
         String q = clean(query);
-        if (LOG_WORDS.contains(q)) return id -> id.endsWith("_log") || id.endsWith("_stem");
+        if (q.isEmpty()) return id -> false;
+        if (LOG_WORDS.contains(q)) return BlockNames::isLog;
         if (q.equals("stone")) return id -> id.equals("stone") || id.equals("cobblestone") || id.equals("deepslate");
         if (q.equals("planks")) return id -> id.endsWith("_planks");
         return id -> id.equals(q) || id.endsWith("_" + q) || id.contains(q);
@@ -30,8 +36,9 @@ public final class BlockNames {
     }
 
     private static String clean(String raw) {
+        if (raw == null) return "";
         String q = raw.trim().toLowerCase(Locale.ROOT);
         if (q.startsWith("minecraft:")) q = q.substring("minecraft:".length());
-        return q.replaceAll("\\s+", "_");
+        return q.replaceAll("\s+", "_");
     }
 }

@@ -2,6 +2,7 @@ package com.aiciv.perception;
 
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.nav.Pos;
+import com.aiciv.world.BlockNames;
 import com.aiciv.world.KnownBlocks;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -24,10 +25,15 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 
 /** Builds a bot's snapshot from the world. Fair: only blocks touching air or water are seen. */
 public final class Perceiver {
@@ -35,6 +41,8 @@ public final class Perceiver {
     static final int ENTITY_RADIUS = 32;
     static final int KNOWN_CAPACITY = 128;
     private static final int REMEMBERED_MAX = 8;
+    /** Line-of-sight rays one scan may cast; candidates beyond that stay unseen. */
+    private static final int MAX_RAYS = 400;
     private static final Set<String> UTILITY = Set.of(
             "crafting_table", "furnace", "blast_furnace", "smoker", "chest", "trapped_chest", "barrel",
             "anvil", "enchanting_table", "brewing_stand");
@@ -53,7 +61,8 @@ public final class Perceiver {
         BlockPos origin = bot.blockPosition();
         long clock = level.getOverworldClockTime();
         ItemStack held = bot.getInventory().getSelectedItem();
-        List<Sighting> blocks = blocks(level, origin, known);
+        known.enterDimension(level.dimension().toString());
+        List<Sighting> blocks = blocks(level, origin, bot.getEyePosition(), known);
         return new SnapshotData(
                 bot.getScoreboardName(), origin.getX(), origin.getY(), origin.getZ(),
                 Math.round(bot.getHealth()), Math.round(bot.getMaxHealth()), bot.getFoodData().getFoodLevel(),
@@ -97,26 +106,41 @@ public final class Perceiver {
         return out;
     }
 
-    /** Every exposed block within {@code radius} whose id (path only) passes {@code label}, nearest first. */
+    /**
+     * Every block within {@code radius} whose id (path only) passes {@code label} and that the bot could see from its
+     * head (about 1.62 above the feet), nearest first.
+     */
     public static List<Map.Entry<Pos, String>> exposedBlocks(ServerLevel level, BlockPos origin, int radius, Predicate<String> label) {
-        record Hit(int d2, Pos pos, String id) {}
-        List<Hit> hits = new ArrayList<>();
-        scan(level, origin, radius, s -> {
+        return exposedBlocks(level, origin, eyeAbove(origin), radius, label);
+    }
+
+    public static List<Map.Entry<Pos, String>> exposedBlocks(ServerLevel level, BlockPos origin, Vec3 eye, int radius,
+                                                             Predicate<String> label) {
+        List<Map.Entry<Pos, String>> out = new ArrayList<>();
+        scan(level, origin, eye, radius, s -> {
             String id = BuiltInRegistries.BLOCK.getKey(s.getBlock()).getPath();
             return label.test(id) ? id : null;
-        }, (id, p, d2, dx, dy, dz) -> hits.add(new Hit(d2, new Pos(p.getX(), p.getY(), p.getZ()), id)));
-        hits.sort(Comparator.comparingInt(Hit::d2));
-        List<Map.Entry<Pos, String>> out = new ArrayList<>();
-        for (Hit h : hits) out.add(Map.entry(h.pos(), h.id()));
-        return out;
+        }, (id, p, d2, dx, dy, dz) -> out.add(Map.entry(new Pos(p.getX(), p.getY(), p.getZ()), id)));
+        return out; // the scan reports nearest first
+    }
+
+    private static Vec3 eyeAbove(BlockPos feet) {
+        return new Vec3(feet.getX() + 0.5, feet.getY() + 1.62, feet.getZ() + 0.5);
     }
 
     private interface Visitor {
         void visit(String label, BlockPos pos, int d2, int dx, int dy, int dz);
     }
 
-    /** Visits blocks in a sphere that the labeller names and that are exposed; the same rule for snapshot and lookups. */
-    private static void scan(ServerLevel level, BlockPos origin, int r, Function<BlockState, String> labeller, Visitor visitor) {
+    private record Candidate(String label, BlockPos pos, int d2, int dx, int dy, int dz, List<Direction> faces, boolean fluid) {}
+
+    /**
+     * Visits, nearest first, blocks in a sphere that the labeller names, that touch air (or water), and that a ray from
+     * {@code eye} actually reaches. Shared by the snapshot and by lookups, so a bot never knows about hidden blocks.
+     */
+    private static void scan(ServerLevel level, BlockPos origin, Vec3 eye, int r, Function<BlockState, String> labeller,
+                             Visitor visitor) {
+        List<Candidate> candidates = new ArrayList<>();
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         int r2 = r * r;
         for (int dx = -r; dx <= r; dx++) {
@@ -131,18 +155,45 @@ public final class Perceiver {
                     String label = labeller.apply(s);
                     if (label == null) continue;
                     boolean fluid = s.getBlock() instanceof LiquidBlock;
-                    if (!exposed(level, p, !fluid)) continue;
-                    visitor.visit(label, p, d2, dx, dy, dz);
+                    List<Direction> faces = exposedFaces(level, p, !fluid);
+                    if (faces.isEmpty()) continue;
+                    candidates.add(new Candidate(label, p.immutable(), d2, dx, dy, dz, faces, fluid));
                 }
             }
         }
+        candidates.sort(Comparator.comparingInt(Candidate::d2));
+        int[] rays = {0};
+        for (Candidate c : candidates) {
+            if (rays[0] >= MAX_RAYS) break;
+            if (visible(level, eye, c, rays)) visitor.visit(c.label(), c.pos(), c.d2(), c.dx(), c.dy(), c.dz());
+        }
     }
 
-    static List<Sighting> blocks(ServerLevel level, BlockPos origin, KnownBlocks known) {
+    /** Tries the block centre, then the centre of up to two exposed faces, stopping at the first ray that arrives. */
+    private static boolean visible(ServerLevel level, Vec3 eye, Candidate c, int[] rays) {
+        ClipContext.Fluid fluids = c.fluid() ? ClipContext.Fluid.ANY : ClipContext.Fluid.NONE;
+        Vec3 centre = Vec3.atCenterOf(c.pos());
+        if (reaches(level, eye, centre, c.pos(), fluids, rays)) return true;
+        for (int i = 0; i < Math.min(2, c.faces().size()); i++) {
+            Direction d = c.faces().get(i);
+            // Aim a little inside the face so the ray ends within the block rather than on its surface.
+            Vec3 target = centre.add(d.getStepX() * 0.45, d.getStepY() * 0.45, d.getStepZ() * 0.45);
+            if (reaches(level, eye, target, c.pos(), fluids, rays)) return true;
+        }
+        return false;
+    }
+
+    private static boolean reaches(ServerLevel level, Vec3 eye, Vec3 target, BlockPos pos, ClipContext.Fluid fluids, int[] rays) {
+        rays[0]++;
+        BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.VISUAL, fluids, CollisionContext.empty()));
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+    }
+
+    static List<Sighting> blocks(ServerLevel level, BlockPos origin, Vec3 eye, KnownBlocks known) {
         // label -> {count, nearest distance squared, dx, dz}
         Map<String, int[]> seen = new HashMap<>();
         long tick = level.getGameTime();
-        scan(level, origin, BLOCK_RADIUS, Perceiver::label, (label, p, d2, dx, dy, dz) -> {
+        scan(level, origin, eye, BLOCK_RADIUS, Perceiver::label, (label, p, d2, dx, dy, dz) -> {
             int[] agg = seen.computeIfAbsent(label, k -> new int[] {0, Integer.MAX_VALUE, 0, 0});
             agg[0]++;
             if (d2 < agg[1]) {
@@ -179,21 +230,22 @@ public final class Perceiver {
         if (s.is(Blocks.WATER)) return "water";
         if (s.is(Blocks.LAVA)) return "lava";
         String id = BuiltInRegistries.BLOCK.getKey(s.getBlock()).getPath();
-        if (id.endsWith("_ore") || id.equals("ancient_debris") || id.endsWith("_log") || id.endsWith("_bed") || UTILITY.contains(id)) {
+        if (id.endsWith("_ore") || id.equals("ancient_debris") || BlockNames.isLog(id) || id.endsWith("_bed") || UTILITY.contains(id)) {
             return id;
         }
         return null;
     }
 
-    /** Solid blocks count as exposed beside air or water; fluids only beside air. */
-    static boolean exposed(ServerLevel level, BlockPos p, boolean waterCounts) {
+    /** Faces beside air; solid blocks also count a face beside water, fluids only beside air. */
+    static List<Direction> exposedFaces(ServerLevel level, BlockPos p, boolean waterCounts) {
+        List<Direction> faces = new ArrayList<>();
         for (Direction d : Direction.values()) {
             BlockPos n = p.relative(d);
             if (!level.isLoaded(n)) continue;
             BlockState s = level.getBlockState(n);
-            if (s.isAir() || (waterCounts && s.getFluidState().is(FluidTags.WATER))) return true;
+            if (s.isAir() || (waterCounts && s.getFluidState().is(FluidTags.WATER))) faces.add(d);
         }
-        return false;
+        return faces;
     }
 
     static List<Sighting> players(AiPlayer bot, Predicate<ServerPlayer> isAi) {

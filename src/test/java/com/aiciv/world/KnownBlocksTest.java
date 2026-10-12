@@ -64,4 +64,40 @@ class KnownBlocksTest {
         assertEquals(List.of("c", "b"), far.stream().map(Map.Entry::getValue).toList());
         assertEquals(new Pos(0, 0, 25), far.get(0).getKey());
     }
+
+    @Test
+    void aForestCannotPushOutOresOrFurnaces() {
+        KnownBlocks known = new KnownBlocks(128);
+        known.see("iron_ore", new Pos(0, 5, 0), 0);
+        known.see("furnace", new Pos(1, 5, 0), 0);
+        for (int i = 0; i < 200; i++) known.see("oak_log", new Pos(10 + i, 5, 0), i + 1);
+        assertTrue(known.nearest(l -> l.equals("iron_ore"), new Pos(0, 5, 0)).isPresent());
+        assertTrue(known.nearest(l -> l.equals("furnace"), new Pos(0, 5, 0)).isPresent());
+        long logs = known.nearestN(new Pos(0, 5, 0), 1000, 0).stream().filter(e -> e.getValue().equals("oak_log")).count();
+        assertEquals(24, logs);
+        // The 24 newest logs survive.
+        assertEquals(new Pos(10 + 176, 5, 0), known.nearest(l -> l.equals("oak_log"), new Pos(0, 5, 0)).get());
+    }
+
+    @Test
+    void fullCacheStillEvictsTheOldestNonLogFirst() {
+        KnownBlocks known = new KnownBlocks(3);
+        known.see("iron_ore", new Pos(1, 0, 0), 1);
+        known.see("coal_ore", new Pos(2, 0, 0), 2);
+        known.see("oak_log", new Pos(3, 0, 0), 3);
+        known.see("gold_ore", new Pos(4, 0, 0), 4);
+        assertTrue(known.nearest(l -> l.equals("iron_ore"), new Pos(0, 0, 0)).isEmpty());
+        assertEquals(3, known.size());
+    }
+
+    @Test
+    void changingDimensionForgetsEverything() {
+        KnownBlocks known = new KnownBlocks(128);
+        known.enterDimension("overworld");
+        known.see("iron_ore", new Pos(1, 1, 1), 1);
+        known.enterDimension("overworld");
+        assertEquals(1, known.size());
+        known.enterDimension("the_nether");
+        assertEquals(0, known.size());
+    }
 }

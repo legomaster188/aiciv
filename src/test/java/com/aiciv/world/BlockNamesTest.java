@@ -59,4 +59,22 @@ class BlockNamesTest {
         assertEquals("planks", BlockNames.normalise("planks"));
         assertEquals("diamond_ore", BlockNames.normalise("diamond ores"));
     }
+
+    @Test
+    void blankOrMissingQueriesMatchNothing() {
+        assertFalse(BlockNames.matcher("").test("stone"));
+        assertFalse(BlockNames.matcher("   ").test("stone"));
+        assertFalse(BlockNames.matcher(null).test("stone"));
+        assertEquals("", BlockNames.normalise(null));
+        assertEquals("", BlockNames.normalise("  "));
+    }
+
+    @Test
+    void onlyNetherStemsCountAsLogs() {
+        assertTrue(BlockNames.isLog("warped_stem"));
+        assertTrue(BlockNames.isLog("stripped_crimson_stem"));
+        assertFalse(BlockNames.isLog("mushroom_stem"));
+        assertFalse(BlockNames.isLog("melon_stem"));
+        assertFalse(BlockNames.matcher("log").test("mushroom_stem"));
+    }
 }

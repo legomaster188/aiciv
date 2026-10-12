@@ -17,6 +17,7 @@ import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.nav.Pos;
 import com.aiciv.perception.Perceiver;
+import com.aiciv.perception.SnapshotData;
 import com.aiciv.perception.SnapshotFormatter;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockNames;
@@ -156,8 +157,8 @@ public final class AiCivGameTests {
     @GameTest(maxTicks = 100)
     public void perceiverRemembersAndForgetsBlocksAndShowsGear(GameTestHelper helper) {
         stoneFloor(helper);
-        helper.setBlock(3, 1, 3, Blocks.IRON_ORE);
-        helper.setBlock(1, 1, 6, Blocks.DEEPSLATE_IRON_ORE);
+        helper.setBlock(3, 1, 3, Blocks.GOLD_ORE);
+        helper.setBlock(1, 1, 6, Blocks.DEEPSLATE_GOLD_ORE);
         helper.setBlock(5, 1, 5, Blocks.OAK_LOG);
         MinecraftServer server = helper.getLevel().getServer();
         AiPlayer bot = AiPlayer.join(server, "TestRemember", () -> {});
@@ -172,26 +173,62 @@ public final class AiCivGameTests {
         helper.runAfterDelay(5, () -> {
             String first = SnapshotFormatter.format(
                     Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known), SnapshotFormatter.MAX_CHARS);
-            boolean cachedOre = known.nearest(l -> l.equals("iron_ore"), orePos).equals(java.util.Optional.of(orePos));
-            boolean cachedDeepslate = known.nearest(l -> l.equals("deepslate_iron_ore"), orePos).isPresent();
+            boolean cachedOre = known.nearest(l -> l.equals("gold_ore"), orePos).equals(java.util.Optional.of(orePos));
+            boolean cachedDeepslate = known.nearest(l -> l.equals("deepslate_gold_ore"), orePos).isPresent();
             boolean cachedLog = known.nearest(l -> l.equals("oak_log"), orePos).isPresent();
-            List<Map.Entry<Pos, String>> ironNearby = Perceiver.exposedBlocks(helper.getLevel(), bot.blockPosition(), 8,
-                    BlockNames.matcher("iron"));
+            List<Map.Entry<Pos, String>> goldNearby = Perceiver.exposedBlocks(helper.getLevel(), bot.blockPosition(), 8,
+                    BlockNames.matcher("gold"));
             // Mine the ore away: the next snapshot must forget it, while the far diamond stays remembered.
             helper.getLevel().setBlock(ore, Blocks.AIR.defaultBlockState(), 3);
-            String second = SnapshotFormatter.format(
-                    Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known), SnapshotFormatter.MAX_CHARS);
-            boolean forgotOre = known.nearest(l -> l.equals("iron_ore"), orePos).isEmpty();
+            SnapshotData secondData = Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known);
+            String second = SnapshotFormatter.format(secondData, SnapshotFormatter.MAX_CHARS);
+            boolean forgotOre = known.nearest(l -> l.equals("gold_ore"), orePos).isEmpty();
             boolean keptFar = known.nearest(l -> l.equals("diamond_ore"), orePos).isPresent();
             server.getPlayerList().remove(bot);
             helper.assertTrue(first.contains("Wearing: iron_chestplate, shield"), first);
             helper.assertTrue(first.contains("Remembered: diamond_ore at " + far.x() + " 40 " + far.z()), first);
             helper.assertTrue(cachedOre && cachedDeepslate && cachedLog, "scan did not cache the ore, deepslate ore and log:\n" + first);
-            helper.assertTrue(ironNearby.size() == 2 && ironNearby.get(0).getValue().equals("iron_ore"),
-                    "exposedBlocks should list the plain iron ore first, then the deepslate one: " + ironNearby);
+            helper.assertTrue(goldNearby.size() == 2 && goldNearby.get(0).getValue().equals("gold_ore"),
+                    "exposedBlocks should list the plain gold ore first, then the deepslate one: " + goldNearby);
             helper.assertTrue(forgotOre, "the mined ore is still remembered");
             helper.assertTrue(keptFar, "a far-away entry outside the scan was forgotten");
-            helper.assertTrue(!second.contains("iron_ore x") && second.contains("Remembered: diamond_ore"), second);
+            helper.assertTrue(secondData.blocks().stream().noneMatch(b -> b.label().equals("gold_ore")), second);
+            helper.assertTrue(second.contains("Remembered: diamond_ore"), second);
+            helper.succeed();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void perceiverOnlyCountsBlocksTheBotCanSee(GameTestHelper helper) {
+        // A rock mass with a 1x1x2 room for the bot and a tunnel running south from it.
+        stoneFloor(helper);
+        for (int x = 0; x < 8; x++) for (int y = 1; y <= 3; y++) for (int z = 0; z < 8; z++) helper.setBlock(x, y, z, Blocks.STONE);
+        for (int z = 0; z <= 3; z++) for (int y = 1; y <= 2; y++) helper.setBlock(0, y, z, Blocks.AIR);
+        // Hidden: touches a sealed air pocket, but three stone blocks stand between it and the bot.
+        helper.setBlock(5, 2, 0, Blocks.AIR);
+        helper.setBlock(4, 2, 0, Blocks.EMERALD_ORE);
+        // Visible: at the end of the tunnel, straight down the line of sight.
+        helper.setBlock(0, 2, 4, Blocks.LAPIS_ORE);
+        MinecraftServer server = helper.getLevel().getServer();
+        AiPlayer bot = AiPlayer.join(server, "TestSight", () -> {});
+        bot.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(0.5, 1, 0.5)), 0.0F);
+        KnownBlocks known = new KnownBlocks(128);
+        helper.runAfterDelay(5, () -> {
+            SnapshotData data = Perceiver.capture(bot, "none", "nothing yet", p -> p instanceof AiPlayer, known);
+            List<Map.Entry<Pos, String>> seen = Perceiver.exposedBlocks(helper.getLevel(), bot.blockPosition(), 8,
+                    BlockNames.matcher("ore"));
+            Pos here = new Pos(bot.blockPosition().getX(), bot.blockPosition().getY(), bot.blockPosition().getZ());
+            boolean cachedHidden = known.nearest(l -> l.equals("emerald_ore"), here).isPresent();
+            boolean cachedVisible = known.nearest(l -> l.equals("lapis_ore"), here).isPresent();
+            server.getPlayerList().remove(bot);
+            helper.assertTrue(data.blocks().stream().noneMatch(b -> b.label().equals("emerald_ore")),
+                    "snapshot lists an ore behind solid rock: " + data.blocks());
+            helper.assertTrue(data.blocks().stream().anyMatch(b -> b.label().equals("lapis_ore")),
+                    "snapshot misses the ore at the end of the tunnel: " + data.blocks());
+            helper.assertTrue(!cachedHidden, "the hidden ore was remembered");
+            helper.assertTrue(cachedVisible, "the visible ore was not remembered");
+            helper.assertTrue(seen.size() == 1 && seen.get(0).getValue().equals("lapis_ore"),
+                    "exposedBlocks should find only the visible ore: " + seen);
             helper.succeed();
         });
     }
