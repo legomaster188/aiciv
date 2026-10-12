@@ -90,6 +90,7 @@ class BotBrainTest {
         b.hurt("s", "burning", t0 + 1100);
         b.hurt("s", "burning", t0 + 2100);
         assertNull(b.pollWake(t0 + 2100, true));
+        assertEquals(1, b.events().lines().size(), "suppressed hurts must not add events");
         b.hurt("s", "burning", t0 + 100 + BotBrain.HURT_COOLDOWN_MILLIS);
         assertEquals(WakeReason.HURT, b.pollWake(t0 + 100 + BotBrain.HURT_COOLDOWN_MILLIS, true));
     }

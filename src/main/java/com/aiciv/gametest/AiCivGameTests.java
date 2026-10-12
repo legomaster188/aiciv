@@ -1,12 +1,25 @@
 package com.aiciv.gametest;
 
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.bot.Bot;
+import com.aiciv.bot.BotManager;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.llm.LlmService;
+import com.aiciv.llm.ScriptedBackend;
 import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.perception.SnapshotFormatter;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.util.List;
+import java.util.Map;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -98,6 +111,87 @@ public final class AiCivGameTests {
             helper.assertTrue(!text.contains("diamond_ore"), "snapshot shows a buried ore:\n" + text);
             helper.assertTrue(!text.contains("lava"), "snapshot shows enclosed lava:\n" + text);
             helper.succeed();
+        });
+    }
+
+    static AiCivConfig scriptedConfig() {
+        return AiCivConfig.GSON.fromJson("""
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"scripted": {"provider": "scripted", "model": "script"}},
+                 "defaultModel": "scripted"}""", AiCivConfig.class);
+    }
+
+    static BotManager scriptedManager(GameTestHelper helper, ScriptedBackend backend, Path dir) throws Exception {
+        AiCivConfig config = scriptedConfig();
+        LlmService llm = new LlmService(config, Map.of("scripted", backend), Clock.systemUTC());
+        return new BotManager(helper.getLevel().getServer(), config, llm,
+                dir.resolve("roster.json"), new DecisionLog(dir.resolve("logs")), Clock.systemUTC());
+    }
+
+    @GameTest(maxTicks = 400)
+    public void scriptedBotSaysHelloAndWalks(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        BlockPos target = helper.absolutePos(new BlockPos(6, 1, 6));
+        JsonObject turn = JsonParser.parseString("""
+                {"content": "Let me look around.", "tool_calls": [
+                  {"id": "1", "type": "function", "function": {"name": "say", "arguments": "{\\"text\\": \\"hello world\\"}"}},
+                  {"id": "2", "type": "function", "function": {"name": "goTo", "arguments": "{\\"x\\": %d, \\"y\\": %d, \\"z\\": %d}"}}]}"""
+                .formatted(target.getX(), target.getY(), target.getZ())).getAsJsonObject();
+        ScriptedBackend backend = new ScriptedBackend(List.of(turn));
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        BotManager manager = scriptedManager(helper, backend, dir);
+        Bot bot = manager.spawn("TestScripted", "scripted", "a test bot", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+        helper.onEachTick(() -> {
+            manager.tickStart();
+            manager.tickEnd();
+        });
+        helper.succeedWhen(() -> {
+            // goTo arrives within 1.5 blocks of the target cell's centre, and the bot may stand anywhere in its cell.
+            helper.assertTrue(bot.player.position().distanceTo(Vec3.atBottomCenterOf(target)) <= 2.2,
+                    "bot is at " + bot.player.position() + ", target " + target);
+            helper.assertTrue(backend.requests().size() >= 1, "no LLM request was made");
+            String system = backend.requests().get(0).getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+            helper.assertTrue(system.contains("You are TestScripted") && system.contains("a test bot"), system);
+            String log;
+            try {
+                log = Files.readString(dir.resolve("logs").resolve("TestScripted.jsonl"));
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException(e);
+            }
+            helper.assertTrue(log.contains("\"goTo\"") && log.contains("Let me look around."), log);
+            try {
+                manager.remove("TestScripted");
+            } catch (com.aiciv.bot.BotException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    @GameTest(maxTicks = 200)
+    public void botDeathLogsOutWithoutMoreCalls(GameTestHelper helper) throws Exception {
+        stoneFloor(helper);
+        ScriptedBackend backend = new ScriptedBackend(List.of());
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        BotManager manager = scriptedManager(helper, backend, dir);
+        Bot bot = manager.spawn("TestDies", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(1.5, 1, 1.5)));
+        helper.onEachTick(() -> {
+            manager.tickStart();
+            manager.tickEnd();
+        });
+        helper.runAfterDelay(5, () -> {
+            bot.player.kill(helper.getLevel());
+            // The global AiCiv listener only feeds the global manager, so call ours directly.
+            manager.onDeath(bot.player);
+        });
+        helper.runAfterDelay(10, () -> {
+            int requestsAfterDeath = backend.requests().size();
+            helper.runAfterDelay(60, () -> {
+                helper.assertTrue(manager.bot("TestDies").isEmpty(), "dead bot is still managed");
+                helper.assertTrue(helper.getLevel().getServer().getPlayerList().getPlayerByName("TestDies") == null, "dead bot is still in the player list");
+                helper.assertTrue(backend.requests().size() == requestsAfterDeath, "LLM was called after death");
+                helper.assertTrue(manager.listLines().get(0).startsWith("TestDies [scripted] offline"), manager.listLines().get(0));
+                helper.succeed();
+            });
         });
     }
 }

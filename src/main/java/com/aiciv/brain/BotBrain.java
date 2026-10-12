@@ -42,8 +42,8 @@ public final class BotBrain {
     }
 
     public void hurt(String stamp, String description, long now) {
-        events.add(stamp, description);
         if (now - lastHurtWakeMillis >= HURT_COOLDOWN_MILLIS) {
+            events.add(stamp, description);
             lastHurtWakeMillis = now;
             raise(WakeReason.HURT);
         }

@@ -1,0 +1,346 @@
+package com.aiciv.bot;
+
+import com.aiciv.AiCiv;
+import com.aiciv.actions.ActionExecutor;
+import com.aiciv.brain.BotBrain;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.brain.Hearing;
+import com.aiciv.brain.ThinkQueue;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.llm.LlmService;
+import com.aiciv.nav.LevelNavigator;
+import com.aiciv.nav.NavBudget;
+import com.aiciv.perception.GameTime;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+
+/** Owns every AI player in one server. All methods run on the server thread. */
+public final class BotManager {
+    private static final Pattern NAME = Pattern.compile("[A-Za-z0-9_]{3,16}");
+
+    private final MinecraftServer server;
+    private AiCivConfig config;
+    private LlmService llm;
+    private final Path rosterFile;
+    private final Roster roster;
+    private final DecisionLog decisionLog;
+    private final Clock clock;
+    private final Map<String, Bot> bots = new LinkedHashMap<>();
+    private final ThinkQueue queue = new ThinkQueue();
+    private final NavBudget navBudget = new NavBudget(NavBudget.DEFAULT_NANOS, System::nanoTime);
+    private final BrainScheduler scheduler = new BrainScheduler(this);
+    private final Set<String> warnedProviders = new HashSet<>();
+
+    public BotManager(MinecraftServer server, AiCivConfig config, LlmService llm, Path rosterFile,
+                      DecisionLog decisionLog, Clock clock) throws IOException {
+        this.server = server;
+        this.config = config;
+        this.llm = llm;
+        this.rosterFile = rosterFile;
+        this.roster = Roster.load(rosterFile);
+        this.decisionLog = decisionLog;
+        this.clock = clock;
+    }
+
+    // ---------------------------------------------------------------- lifecycle
+
+    public void restoreAll() {
+        for (Roster.Entry e : roster.all()) {
+            if (server.getPlayerList().getPlayerByName(e.name) != null) {
+                AiCiv.LOG.warn("Not restoring {}: a player with that name is online", e.name);
+                continue;
+            }
+            join(e);
+        }
+    }
+
+    public void shutdown() {
+        saveRoster();
+        for (Bot b : bots.values()) b.executor.stop(b.context);
+        bots.clear();
+        queue.clear();
+    }
+
+    public void reload(AiCivConfig config, LlmService llm) {
+        this.config = config;
+        this.llm = llm;
+        warnedProviders.clear();
+    }
+
+    /** Tells online operators, once per provider, that its key is missing or was rejected. Never shows the key. */
+    void warnOpsOnce(String provider, String reason) {
+        if (!warnedProviders.add(provider)) return;
+        AiCiv.LOG.warn("AiCiv provider {} is disabled: {}", provider, reason);
+        Component msg = Component.literal("[AiCiv] Provider '" + provider + "' is disabled: " + reason
+                + ". Fix keys.json, then run /ai reload.").withStyle(ChatFormatting.RED);
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            if (Commands.LEVEL_GAMEMASTERS.check(p.permissions())) p.sendSystemMessage(msg);
+        }
+    }
+
+    // ---------------------------------------------------------------- commands
+
+    public Bot spawn(String name, String modelKey, String persona, ServerLevel level, Vec3 pos) throws BotException {
+        if (!NAME.matcher(name).matches()) throw new BotException("Bot names must be 3 to 16 letters, digits or _");
+        if (server.getPlayerList().getPlayerByName(name) != null) throw new BotException(name + " is already online");
+        Optional<Roster.Entry> existing = roster.get(name);
+        String model = modelKey != null ? modelKey
+                : existing.map(e -> e.model).filter(llm::knowsModel).orElse(config.defaultModel);
+        if (!llm.knowsModel(model)) {
+            throw new BotException("Unknown model '" + model + "'. Configured models: " + String.join(", ", llm.modelKeys()));
+        }
+        Roster.Entry e = roster.getOrAdd(name);
+        e.model = model;
+        if (persona != null) e.persona = persona;
+        e.paused = false;
+        saveRoster();
+        Bot b = join(e);
+        b.player.moveTo(level, pos, 0.0F);
+        return b;
+    }
+
+    public void remove(String name) throws BotException {
+        Bot b = bots.get(key(name));
+        boolean known = roster.remove(name);
+        if (b == null && !known) throw new BotException("No AI player named " + name);
+        if (b != null) logout(b);
+        saveRoster();
+    }
+
+    public void setGoal(String name, String goal) throws BotException {
+        Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
+        e.goal = goal;
+        Bot b = bots.get(key(name));
+        if (b != null) b.brain.setGoal(goal);
+        saveRoster();
+    }
+
+    /** Pauses or resumes one bot, or all of them when target is null or "all". Returns how many changed. */
+    public int setPaused(String target, boolean paused) throws BotException {
+        List<Roster.Entry> chosen = new ArrayList<>();
+        if (target == null || target.equalsIgnoreCase("all")) {
+            chosen.addAll(roster.all());
+        } else {
+            chosen.add(roster.get(target).orElseThrow(() -> new BotException("No AI player named " + target)));
+        }
+        for (Roster.Entry e : chosen) {
+            e.paused = paused;
+            Bot b = bots.get(key(e.name));
+            if (b == null) continue;
+            b.brain.setPaused(paused);
+            if (paused) {
+                b.executor.stop(b.context);
+                queue.remove(b.name);
+            }
+        }
+        saveRoster();
+        return chosen.size();
+    }
+
+    public List<String> listLines() {
+        if (roster.all().isEmpty()) return List.of("No AI players. Add one with /ai spawn <name> [model] [persona]");
+        List<String> out = new ArrayList<>();
+        for (Roster.Entry e : roster.all()) {
+            Bot b = bots.get(key(e.name));
+            String line = e.name + " [" + e.model + "] " + state(b);
+            if (b != null && b.executor.busy()) line += ": " + b.executor.currentDescription();
+            out.add(line);
+        }
+        return out;
+    }
+
+    public List<String> statusLines(String name) throws BotException {
+        Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
+        Bot b = bots.get(key(name));
+        List<String> out = new ArrayList<>();
+        out.add(e.name + " [" + e.model + "] " + state(b));
+        out.add("Persona: " + (e.persona.isBlank() ? "(none)" : e.persona));
+        out.add("Goal: " + (e.goal.isBlank() ? "(none)" : e.goal));
+        if (b != null) {
+            out.add("Doing: " + b.executor.currentDescription());
+            out.add("Last decision: " + b.brain.lastDecision());
+            int pos = queue.positionOf(b.name);
+            out.add("Queue position: " + (pos < 0 ? "not waiting" : pos));
+            out.add("Remembered events: " + b.brain.events().lines().size());
+        }
+        return out;
+    }
+
+    public List<String> budgetLines() {
+        return llm.budgetLines();
+    }
+
+    public Optional<Bot> bot(String name) {
+        return Optional.ofNullable(bots.get(key(name)));
+    }
+
+    public Collection<String> botNames() {
+        return roster.all().stream().map(e -> e.name).toList();
+    }
+
+    public Set<String> modelKeys() {
+        return llm.modelKeys();
+    }
+
+    // ---------------------------------------------------------------- ticking
+
+    /** Start of server tick: search paths, steer, run actions. */
+    public void tickStart() {
+        navBudget.tick();
+        for (Bot b : List.copyOf(bots.values())) {
+            if (b.player.isDeadOrDying()) continue;
+            b.navigator.tick();
+            String ended = b.executor.tick(b.context);
+            if (ended != null) b.brain.actionsEnded(stamp(), ended);
+        }
+    }
+
+    /** End of server tick: wake bots and send LLM requests. */
+    public void tickEnd() {
+        scheduler.tick(clock.millis());
+    }
+
+    // ---------------------------------------------------------------- events
+
+    public void onChat(ServerPlayer speaker, String text) {
+        routeChat(speaker.getScoreboardName(), speaker.level(), speaker.position(), text, null);
+    }
+
+    void botSays(Bot bot, String text) {
+        server.getPlayerList().broadcastSystemMessage(
+                Component.translatable("chat.type.text", bot.player.getDisplayName(), Component.literal(text)), false);
+        bot.brain.note(stamp(), "you said: \"" + text + "\"");
+        routeChat(bot.name, bot.player.level(), bot.player.position(), text, bot);
+    }
+
+    public void onDamage(LivingEntity entity, DamageSource source, float taken) {
+        if (!(entity instanceof AiPlayer p) || taken <= 0) return;
+        Bot b = bots.get(key(p.getScoreboardName()));
+        if (b == null || b.player != p) return;
+        Entity attacker = source.getEntity();
+        String cause = attacker != null ? attacker.getName().getString() : source.getMsgId();
+        b.brain.hurt(stamp(), String.format(Locale.ROOT, "you were hurt by %s (%.1f damage), health now %d/%d",
+                cause, taken, Math.round(p.getHealth()), Math.round(p.getMaxHealth())), clock.millis());
+    }
+
+    /** Milestone 1 has no respawn: a dead bot leaves with health restored so /ai spawn brings it back. */
+    public void onDeath(LivingEntity entity) {
+        if (!(entity instanceof AiPlayer p)) return;
+        Bot b = bots.get(key(p.getScoreboardName()));
+        if (b == null || b.player != p) return;
+        queue.remove(b.name);
+        b.executor.stop(b.context);
+        server.execute(() -> {
+            if (bots.get(key(b.name)) != b) return;
+            p.setHealth(p.getMaxHealth());
+            logout(b);
+            AiCiv.LOG.info("{} died and left. /ai spawn {} brings them back.", b.name, b.name);
+        });
+    }
+
+    // ---------------------------------------------------------------- internals
+
+    private Bot join(Roster.Entry e) {
+        AiPlayer[] holder = new AiPlayer[1];
+        AiPlayer p = AiPlayer.join(server, e.name, () -> server.execute(() -> handleDisconnect(e.name, holder[0])));
+        holder[0] = p;
+        BotBrain brain = new BotBrain(e.name, e.persona, e.goal, e.model, config.eventWindow,
+                config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, clock.millis());
+        brain.setPaused(e.paused);
+        Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget));
+        b.context = new LiveContext(this, b);
+        bots.put(key(e.name), b);
+        return b;
+    }
+
+    private void logout(Bot b) {
+        b.executor.stop(b.context);
+        b.navigator.stop();
+        queue.remove(b.name);
+        bots.remove(key(b.name));
+        server.getPlayerList().broadcastSystemMessage(
+                Component.translatable("multiplayer.player.left", b.player.getDisplayName()).withStyle(ChatFormatting.YELLOW), false);
+        server.getPlayerList().remove(b.player);
+    }
+
+    private void handleDisconnect(String name, AiPlayer player) {
+        Bot b = bots.get(key(name));
+        if (b != null && b.player == player) logout(b);
+    }
+
+    private void routeChat(String speaker, Level level, Vec3 pos, String text, Bot exclude) {
+        long now = clock.millis();
+        String stamp = stamp();
+        for (Bot b : bots.values()) {
+            if (b == exclude) continue;
+            boolean mentioned = Hearing.mentions(text, b.name);
+            double d2 = b.player.level() == level ? b.player.position().distanceToSqr(pos) : Double.MAX_VALUE;
+            if (Hearing.hears(d2, config.hearingRange, mentioned)) b.brain.hearChat(stamp, speaker, text, mentioned, now);
+        }
+    }
+
+    private String state(Bot b) {
+        if (b == null) return "offline";
+        if (b.brain.paused()) return "paused";
+        if (b.brain.awaitingReply()) return "thinking";
+        if (b.executor.busy()) return "acting";
+        if (queue.positionOf(b.name) > 0) return "waiting for a turn";
+        return "idle";
+    }
+
+    private void saveRoster() {
+        try {
+            roster.save(rosterFile);
+        } catch (IOException e) {
+            AiCiv.LOG.error("Could not save the AiCiv roster to {}", rosterFile, e);
+        }
+    }
+
+    /** Names of everyone else online, tagged AI or human, for the system prompt. */
+    List<String> othersFor(Bot self) {
+        List<String> out = new ArrayList<>();
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            if (p == self.player) continue;
+            out.add(p.getScoreboardName() + (p instanceof AiPlayer ? " (AI)" : " (human)"));
+        }
+        return out;
+    }
+
+    String stamp() {
+        return GameTime.stamp(server.overworld().getOverworldClockTime());
+    }
+
+    static String key(String name) {
+        return name.toLowerCase(Locale.ROOT);
+    }
+
+    Collection<Bot> bots() { return bots.values(); }
+    ThinkQueue queue() { return queue; }
+    LlmService llm() { return llm; }
+    AiCivConfig config() { return config; }
+    DecisionLog decisionLog() { return decisionLog; }
+    MinecraftServer server() { return server; }
+    Clock clock() { return clock; }
+}
