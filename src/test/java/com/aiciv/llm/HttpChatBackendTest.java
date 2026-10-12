@@ -22,6 +22,7 @@ class HttpChatBackendTest {
     volatile String body = "{\"choices\": []}";
     volatile Map<String, String> headers = Map.of();
     volatile long delayMillis;
+    volatile boolean stallBody;
     final List<String> paths = new CopyOnWriteArrayList<>();
     final List<String> auth = new CopyOnWriteArrayList<>();
 
@@ -37,6 +38,15 @@ class HttpChatBackendTest {
                 try { Thread.sleep(delayMillis); } catch (InterruptedException ignored) { }
             }
             headers.forEach((k, v) -> ex.getResponseHeaders().add(k, v));
+            if (stallBody) {
+                // Headers and one byte of a 100-byte body, then silence: the reply never finishes.
+                ex.sendResponseHeaders(200, 100);
+                ex.getResponseBody().write('{');
+                ex.getResponseBody().flush();
+                try { Thread.sleep(2000); } catch (InterruptedException ignored) { }
+                ex.close();
+                return;
+            }
             byte[] b = body.getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(status, b.length == 0 ? -1 : b.length);
             if (b.length > 0) ex.getResponseBody().write(b);
@@ -123,5 +133,31 @@ class HttpChatBackendTest {
         delayMillis = 2000;
         BackendResult.Failed f = assertInstanceOf(BackendResult.Failed.class, call("k", Duration.ofMillis(300)));
         assertTrue(f.reason().startsWith("network"), f.reason());
+    }
+
+    @Test
+    void stalledBodyIsANetworkFailure() throws Exception {
+        stallBody = true;
+        // Waits only 1 s: without the overall timeout the future stays pending past this bound.
+        BackendResult r = new HttpChatBackend(base(), "k", Duration.ofMillis(300)).send(new JsonObject()).get(1, SECONDS);
+        BackendResult.Failed f = assertInstanceOf(BackendResult.Failed.class, r);
+        assertTrue(f.reason().startsWith("network"), f.reason());
+    }
+
+    @Test
+    void keyWithControlCharactersIsAnAuthFailureAndNothingIsSent() throws Exception {
+        BackendResult.Failed f = assertInstanceOf(BackendResult.Failed.class, call("abc\n", Duration.ofSeconds(5)));
+        assertTrue(f.auth());
+        assertTrue(paths.isEmpty(), "request must not be sent with an unusable key");
+    }
+
+    @Test
+    void providerEchoingTheKeyIsRedacted() throws Exception {
+        status = 401;
+        body = "{\"error\": \"key secret-key-123 is not valid\"}";
+        BackendResult.Failed f = assertInstanceOf(BackendResult.Failed.class, call("secret-key-123", Duration.ofSeconds(5)));
+        assertTrue(f.auth());
+        assertFalse(f.reason().contains("secret-key-123"), f.reason());
+        assertTrue(f.reason().contains("***"), f.reason());
     }
 }

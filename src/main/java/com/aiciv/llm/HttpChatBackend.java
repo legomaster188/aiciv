@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 
 /** Any OpenAI-compatible chat-completions endpoint: Gemini, Groq, OpenRouter, OpenCode Zen, Ollama... */
 public final class HttpChatBackend implements ChatBackend {
@@ -34,14 +35,24 @@ public final class HttpChatBackend implements ChatBackend {
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
-        if (apiKey != null) req.header("Authorization", "Bearer " + apiKey);
+        if (apiKey != null) {
+            try {
+                req.header("Authorization", "Bearer " + apiKey);
+            } catch (IllegalArgumentException e) {
+                // A key with CR, LF or other control characters cannot go in a header. Say so without sending.
+                return CompletableFuture.completedFuture(
+                        new BackendResult.Failed("API key contains characters that cannot be sent", true));
+            }
+        }
+        // HttpRequest.timeout stops covering the exchange once headers arrive, so a stalled body needs its own bound.
         return http.sendAsync(req.build(), HttpResponse.BodyHandlers.ofString())
+                .orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
                 .handle((resp, err) -> err != null
                         ? new BackendResult.Failed("network: " + describe(err), false)
-                        : interpret(resp.statusCode(), resp.body(), resp.headers().firstValue("Retry-After")));
+                        : interpret(resp.statusCode(), resp.body(), resp.headers().firstValue("Retry-After"), apiKey));
     }
 
-    static BackendResult interpret(int status, String body, Optional<String> retryAfter) {
+    static BackendResult interpret(int status, String body, Optional<String> retryAfter, String apiKey) {
         if (status == 200) {
             try {
                 JsonElement el = JsonParser.parseString(body);
@@ -54,12 +65,19 @@ public final class HttpChatBackend implements ChatBackend {
         if (status == 429) {
             return new BackendResult.RateLimited(retryAfter.flatMap(HttpChatBackend::seconds).orElse(null));
         }
-        String snippet = body == null ? "" : body.replaceAll("\\s+", " ").trim();
-        if (snippet.length() > 200) snippet = snippet.substring(0, 200) + "...";
-        // Gemini answers HTTP 400 "API key not valid" for a bad key.
-        boolean badKey = status == 401 || status == 403 || (status == 400 && snippet.contains("API key"));
-        if (badKey) return new BackendResult.Failed("HTTP " + status + " (key rejected): " + snippet, true);
-        return new BackendResult.Failed("HTTP " + status + ": " + snippet, false);
+        String raw = body == null ? "" : body;
+        // Gemini answers HTTP 400 "API key not valid" for a bad key. Classify on the provider's own words.
+        boolean badKey = status == 401 || status == 403 || (status == 400 && snippet(raw).contains("API key"));
+        // Redact before condensing or cutting, so no part of the key survives at the cut.
+        String shown = snippet(apiKey == null || apiKey.isEmpty() ? raw : raw.replace(apiKey, "***"));
+        if (badKey) return new BackendResult.Failed("HTTP " + status + " (key rejected): " + shown, true);
+        return new BackendResult.Failed("HTTP " + status + ": " + shown, false);
+    }
+
+    /** Condenses whitespace and cuts to 200 characters. */
+    private static String snippet(String text) {
+        String s = text.replaceAll("\\s+", " ").trim();
+        return s.length() > 200 ? s.substring(0, 200) + "..." : s;
     }
 
     private static Optional<Duration> seconds(String value) {
