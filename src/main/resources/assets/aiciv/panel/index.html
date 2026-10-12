@@ -108,8 +108,19 @@ aside .head h2 { margin: 0; font-size: 20px; flex: 1; }
 <div id="toast"></div>
 <script>
 "use strict";
-// The token lives in the URL fragment (never sent to the server) and is kept only in this variable.
-const token = new URLSearchParams(location.hash.slice(1)).get("t") || "";
+// The token arrives in the URL fragment (never sent to the server). It is moved into this tab's session storage and
+// wiped from the address bar, so it does not show up on screen while recording; a refresh still works.
+const token = (() => {
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get("t");
+  try {
+    if (fromHash) sessionStorage.setItem("aicivToken", fromHash);
+    const t = fromHash || sessionStorage.getItem("aicivToken") || "";
+    if (fromHash) history.replaceState(null, "", location.pathname);
+    return t;
+  } catch (e) {
+    return fromHash || "";
+  }
+})();
 const grid = document.getElementById("grid");
 const cards = new Map();
 let state = null, openBot = null, models = [];
