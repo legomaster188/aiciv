@@ -1,6 +1,24 @@
 package com.aiciv;
 
+import com.aiciv.bot.AiCommands;
+import com.aiciv.bot.BotManager;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.config.KeyStore;
+import com.aiciv.llm.LlmService;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.util.List;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,8 +26,80 @@ public final class AiCiv implements ModInitializer {
     public static final String MOD_ID = "aiciv";
     public static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
 
+    private static volatile BotManager manager;
+    private static Path configDir;
+
     @Override
     public void onInitialize() {
+        configDir = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID);
+        ServerLifecycleEvents.SERVER_STARTED.register(AiCiv::start);
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> stop());
+        ServerTickEvents.START_SERVER_TICK.register(server -> {
+            BotManager m = manager;
+            if (m != null) m.tickStart();
+        });
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            BotManager m = manager;
+            if (m != null) m.tickEnd();
+        });
+        ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
+            BotManager m = manager;
+            if (m != null) m.onChat(sender, message.signedContent());
+        });
+        ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, baseDamage, damageTaken, blocked) -> {
+            BotManager m = manager;
+            if (m != null) m.onDamage(entity, source, damageTaken);
+        });
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+            BotManager m = manager;
+            if (m != null) m.onDeath(entity);
+        });
+        CommandRegistrationCallback.EVENT.register((dispatcher, registry, selection) -> AiCommands.register(dispatcher));
         LOG.info("AiCiv initialized");
+    }
+
+    /** The running server's bot manager, or null when no server is running. */
+    public static BotManager manager() {
+        return manager;
+    }
+
+    /** Re-reads aiciv.json and keys.json. Returns config problems; empty when clean. */
+    public static List<String> reload() throws IOException {
+        BotManager m = manager;
+        if (m == null) throw new IOException("AiCiv is not running");
+        Loaded l = loadServices();
+        m.reload(l.config(), l.llm());
+        return l.config().validate();
+    }
+
+    private static void start(MinecraftServer server) {
+        try {
+            Loaded l = loadServices();
+            Path roster = server.getWorldPath(LevelResource.ROOT).resolve("aiciv").resolve("roster.json");
+            DecisionLog log = new DecisionLog(FabricLoader.getInstance().getGameDir().resolve("logs").resolve("aiciv"));
+            manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC());
+            manager.restoreAll();
+        } catch (IOException | RuntimeException e) {
+            LOG.error("AiCiv failed to start; /ai commands are unavailable", e);
+        }
+    }
+
+    private static void stop() {
+        BotManager m = manager;
+        manager = null;
+        if (m != null) m.shutdown();
+    }
+
+    private record Loaded(AiCivConfig config, LlmService llm) {}
+
+    private static Loaded loadServices() throws IOException {
+        AiCivConfig config = AiCivConfig.loadOrCreate(configDir.resolve("aiciv.json"));
+        for (String problem : config.validate()) LOG.warn("aiciv.json: {}", problem);
+        KeyStore keys = KeyStore.load(configDir.resolve("keys.json"), System::getenv);
+        LlmService llm = LlmService.create(config, keys, configDir, Clock.systemUTC());
+        for (String line : llm.budgetLines()) {
+            if (line.contains("disabled")) LOG.warn("AiCiv provider {}", line);
+        }
+        return new Loaded(config, llm);
     }
 }
