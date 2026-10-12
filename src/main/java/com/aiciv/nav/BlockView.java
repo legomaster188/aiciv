@@ -10,4 +10,13 @@ public interface BlockView {
 
     /** Hurts or traps anything that enters or stands on it: lava, fire, magma, cactus... */
     boolean dangerous(int x, int y, int z);
+
+    /**
+     * Seconds to break this block with the best tool at hand; +infinity = unbreakable or must not be broken
+     * (fluids, dangerous blocks, anything with a block entity such as chests, furnaces and beds).
+     */
+    double breakSeconds(int x, int y, int z);
+
+    /** Water source or flowing water with no collision. */
+    boolean water(int x, int y, int z);
 }

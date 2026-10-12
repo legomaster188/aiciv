@@ -39,6 +39,17 @@ public final class LevelBlockView implements BlockView {
     }
 
     @Override
+    public double breakSeconds(int x, int y, int z) {
+        return Double.POSITIVE_INFINITY;
+    }
+
+    @Override
+    public boolean water(int x, int y, int z) {
+        BlockState s = at(x, y, z);
+        return s != null && s.getFluidState().is(FluidTags.WATER);
+    }
+
+    @Override
     public boolean dangerous(int x, int y, int z) {
         BlockState s = at(x, y, z);
         if (s == null) return true;
