@@ -8,6 +8,7 @@ import com.aiciv.perception.Perceiver;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockNames;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.Sight;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
@@ -41,8 +43,12 @@ public final class MineAction implements Action {
     static final int COLLECT_TICKS = 4 * 20;
     /** "block changed" fires for any state change (leaf distance, age, light); this many in a row means something is wrong. */
     static final int MAX_RETRIES = 10;
+    /** Blocks the bot digs through to get a hidden target in sight before it gives that target up. */
+    static final int MAX_OCCLUDERS = 6;
+    /** How close the bot walks when it cannot see a target and cannot dig toward it. */
+    static final double CLOSE_RADIUS = 1.5;
 
-    private enum Phase { PICK, NAVIGATE, BREAK, COLLECT }
+    private enum Phase { PICK, NAVIGATE, BREAK, DIG, COLLECT }
 
     private final String query;
     private final int count;
@@ -58,6 +64,10 @@ public final class MineAction implements Action {
     private String lastProblem;
     private BlockPos target;
     private int retries;
+    /** Blocks dug out of the way to the current target, and whether the bot already walked up close to it. */
+    private int dug;
+    private boolean closer;
+    private BlockPos tracked;
     private BlockPos collectCentre;
     private int collectTicks;
 
@@ -74,6 +84,7 @@ public final class MineAction implements Action {
             case PICK -> pick(ctx);
             case NAVIGATE -> navigate(ctx);
             case BREAK -> breakBlock(ctx);
+            case DIG -> dig(ctx);
             case COLLECT -> collect(ctx);
         };
     }
@@ -97,6 +108,8 @@ public final class MineAction implements Action {
             everTargeted = true;
             target = pos;
             retries = 0;
+            dug = 0;
+            closer = false;
             ctx.navigator().goTo(new NearGoal(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, STAND_RADIUS));
             phase = Phase.NAVIGATE;
             return ActionStatus.RUNNING;
@@ -153,6 +166,14 @@ public final class MineAction implements Action {
                 break;
         }
         // Arrived. A block too high to reach from here is caught by the breaker's own reach check and skipped.
+        return approach(ctx);
+    }
+
+    /**
+     * Starts breaking the target if the bot can see it. A target behind other blocks is never hit through them: the
+     * bot digs the block in the way first, as a player tunnels toward an ore, or walks closer when it cannot.
+     */
+    private ActionStatus approach(BotContext ctx) {
         AiPlayer player = ctx.player();
         ServerLevel level = player.level();
         BlockState state = level.getBlockState(target);
@@ -161,10 +182,57 @@ public final class MineAction implements Action {
             phase = Phase.PICK;
             return ActionStatus.RUNNING;
         }
-        trackDrops(player, level, target, state);
-        ctx.breaker().start(target);
-        phase = Phase.BREAK;
+        BlockPos blocker = Sight.occluder(player, target);
+        if (blocker == null) {
+            if (!target.equals(tracked)) {
+                trackDrops(player, level, target, state);
+                tracked = target;
+            }
+            ctx.breaker().start(target);
+            phase = Phase.BREAK;
+        } else if (dug >= MAX_OCCLUDERS) {
+            skip(target, "too much rock in the way");
+            phase = Phase.PICK;
+        } else if (diggable(player, level, blocker)) {
+            dug++;
+            ctx.breaker().start(blocker);
+            phase = Phase.DIG;
+        } else {
+            walkCloser(ctx, "can't see it");
+        }
         return ActionStatus.RUNNING;
+    }
+
+    /** Walks right up to a target it cannot see from here, once; after that the target is given up. */
+    private void walkCloser(BotContext ctx, String problem) {
+        if (closer) {
+            skip(target, problem);
+            phase = Phase.PICK;
+            return;
+        }
+        closer = true;
+        ctx.navigator().goTo(new NearGoal(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5, CLOSE_RADIUS));
+        phase = Phase.NAVIGATE;
+    }
+
+    /** Digging out a block between the bot and its target; then it looks again from where it stands. */
+    private ActionStatus dig(BotContext ctx) {
+        BlockBreaker.Status s = ctx.breaker().tick();
+        if (s.state() == BlockBreaker.Status.State.RUNNING) return ActionStatus.RUNNING;
+        if (s.state() == BlockBreaker.Status.State.DONE || s.reason().equals("block changed")) return approach(ctx);
+        walkCloser(ctx, s.reason());
+        return ActionStatus.RUNNING;
+    }
+
+    /** A block a player would dig through: breakable, not what the bot stands on, no container, holding back no liquid. */
+    private static boolean diggable(AiPlayer player, ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.getDestroySpeed(level, pos) < 0 || !level.mayInteract(player, pos) || level.getBlockEntity(pos) != null) return false;
+        if (pos.equals(player.blockPosition().below())) return false;
+        for (Direction d : Direction.values()) {
+            if (!level.getFluidState(pos.relative(d)).isEmpty()) return false;
+        }
+        return true;
     }
 
     private ActionStatus breakBlock(BotContext ctx) {
@@ -193,6 +261,7 @@ public final class MineAction implements Action {
             }
             return ActionStatus.RUNNING;
         }
+        if (s.reason().equals(BlockBreaker.NOT_IN_SIGHT)) return approach(ctx); // something got in the way
         skip(target, s.reason());
         phase = Phase.PICK;
         return ActionStatus.RUNNING;
@@ -276,7 +345,7 @@ public final class MineAction implements Action {
         ctx.breaker().cancel();
         gatherer.stop(ctx);
         // A dig or walk in progress is dropped; picking again re-plans from here. Collecting resumes as it was.
-        if (phase == Phase.NAVIGATE || phase == Phase.BREAK) phase = Phase.PICK;
+        if (phase == Phase.NAVIGATE || phase == Phase.BREAK || phase == Phase.DIG) phase = Phase.PICK;
     }
 
     @Override

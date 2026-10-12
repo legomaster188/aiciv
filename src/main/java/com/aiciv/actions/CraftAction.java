@@ -8,6 +8,7 @@ import com.aiciv.craft.RecipeOption;
 import com.aiciv.nav.Pos;
 import com.aiciv.world.BlockPlacer;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.Sight;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -147,7 +148,7 @@ public final class CraftAction implements Action {
                 feet.offset(TABLE_RADIUS, TABLE_RADIUS, TABLE_RADIUS))) {
             if (!level.getBlockState(pos).is(Blocks.CRAFTING_TABLE)) continue;
             double d2 = Vec3.atCenterOf(pos).distanceToSqr(eyes);
-            if (d2 <= bestD2) {
+            if (d2 <= bestD2 && Sight.canSee(player, pos)) { // a table behind a wall cannot be used
                 bestD2 = d2;
                 best = pos.immutable();
             }

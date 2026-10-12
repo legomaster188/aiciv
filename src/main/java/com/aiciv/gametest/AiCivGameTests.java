@@ -799,6 +799,41 @@ public final class AiCivGameTests {
         });
     }
 
+    /**
+     * Fairness: a coal ore known from a sealed cave, the bot in a parallel tunnel two stone away. The bot must dig
+     * through the stone toward the ore before it mines it, never mine it through the wall.
+     */
+    @GameTest(maxTicks = 600)
+    public void minesThroughTheWallInsteadOfReachingThroughIt(GameTestHelper helper) throws Exception {
+        for (int x = 0; x <= 8; x++) for (int y = 0; y <= 3; y++) for (int z = 0; z <= 8; z++) helper.setBlock(x, y, z, Blocks.STONE);
+        for (int x = 1; x <= 7; x++) for (int y = 1; y <= 2; y++) helper.setBlock(x, y, 2, Blocks.AIR); // the bot's tunnel
+        for (int x = 3; x <= 5; x++) for (int y = 1; y <= 2; y++) helper.setBlock(x, y, 6, Blocks.AIR); // the sealed cave
+        BlockPos ore = new BlockPos(4, 2, 5);
+        BlockPos wallNear = new BlockPos(4, 2, 3), wallFar = new BlockPos(4, 2, 4);
+        helper.setBlock(ore, Blocks.COAL_ORE);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestWallOre", new Vec3(4.5, 1, 2.5));
+        BlockPos abs = helper.absolutePos(ore);
+        bot.knownBlocks.see("coal_ore", new Pos(abs.getX(), abs.getY(), abs.getZ()), helper.getLevel().getGameTime());
+        bot.player.getInventory().setItem(0, new ItemStack(Items.STONE_PICKAXE));
+        bot.executor.replace(List.of(new MineAction("coal_ore", 1)), bot.context);
+        boolean[] cheated = {false};
+        helper.onEachTick(() -> {
+            boolean wallIntact = helper.getBlockState(wallNear).is(Blocks.STONE) || helper.getBlockState(wallFar).is(Blocks.STONE);
+            if (!helper.getBlockState(ore).is(Blocks.COAL_ORE) && wallIntact) cheated[0] = true;
+        });
+        helper.runAfterDelay(599, () -> {
+            if (manager[0].bot("TestWallOre").isPresent()) removeBot(manager[0], "TestWallOre");
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(!cheated[0], "the ore was mined through the wall; " + events(bot));
+            helper.assertTrue(!helper.getBlockState(ore).is(Blocks.COAL_ORE), "the ore is still there; " + events(bot));
+            helper.assertTrue(events(bot).contains("finished: mine coal x1"), "mine did not finish: " + events(bot));
+            helper.assertTrue(InventoryOps.has(bot.player, Items.COAL, 1), "no coal held; " + events(bot));
+            removeBot(manager[0], "TestWallOre");
+        });
+    }
+
     @GameTest(maxTicks = 300)
     public void mineRetriesWhenTheBlockStateChangesMidBreak(GameTestHelper helper) throws Exception {
         stoneFloor(helper);

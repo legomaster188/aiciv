@@ -25,6 +25,7 @@ public final class BlockBreaker {
         }
     }
 
+    public static final String NOT_IN_SIGHT = "not in sight";
     private static final int SWING_INTERVAL = 5;
 
     private final AiPlayer player;
@@ -79,6 +80,10 @@ public final class BlockBreaker {
         if (new AABB(target).distanceToSqr(player.getEyePosition()) > square(player.blockInteractionRange())) {
             cancel();
             return Status.failed("out of reach");
+        }
+        if (!Sight.canSee(player, target)) { // a player cannot hit a block through another one
+            cancel();
+            return Status.failed(NOT_IN_SIGHT);
         }
         ItemStack tool = InventoryOps.bestToolFor(player, state);
         if (!tool.isEmpty()) InventoryOps.selectBest(player, s -> s == tool ? 1 : 0);
