@@ -115,4 +115,19 @@ class AiCivConfigTest {
         String problems = String.join("\n", AiCivConfig.loadOrCreate(file).validate());
         assertTrue(problems.contains("unknown decisionMode 'psychic'"), problems);
     }
+    @Test
+    void validateRejectsAToolsModelWhoseFallbackIsTypesafe() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"jev": {"type": "typesafe", "baseUrl": "https://openrouter.ai"},
+                           "chat": {"baseUrl": "http://localhost:1/v1"}},
+             "models": {"jev": {"provider": "jev", "model": "typesafe/jev-1.13"},
+                        "tools-chat": {"provider": "chat", "model": "x", "fallback": "relay"},
+                        "relay": {"provider": "chat", "model": "y", "decisionMode": "menu", "fallback": "jev"},
+                        "menu-chat": {"provider": "chat", "model": "x", "decisionMode": "menu", "fallback": "jev"}},
+             "defaultModel": "menu-chat"}""");
+        List<String> problems = AiCivConfig.loadOrCreate(file).validate();
+        assertEquals(List.of("model 'tools-chat' decides with tools, but its fallback 'jev' uses typesafe provider 'jev',"
+                + " which only picks from menus"), problems);
+    }
 }

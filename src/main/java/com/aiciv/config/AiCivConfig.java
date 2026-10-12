@@ -8,10 +8,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /** aiciv.json. Public fields so Gson can fill them; field initializers are the defaults. */
 public final class AiCivConfig {
@@ -147,6 +149,13 @@ public final class AiCivConfig {
                 problems.add("provider '" + e.getKey() + "' has invalid resetZone '" + p.resetZone + "'");
             }
         }
+        for (String key : models.keySet()) {
+            String typesafe = typesafeFallback(key);
+            if (typesafe != null) {
+                problems.add("model '" + key + "' decides with tools, but its fallback '" + typesafe + "' uses typesafe provider '"
+                        + models.get(typesafe).provider + "', which only picks from menus");
+            }
+        }
         if (!models.containsKey(defaultModel)) {
             problems.add("defaultModel '" + defaultModel + "' is not a configured model");
         }
@@ -159,6 +168,23 @@ public final class AiCivConfig {
         if (m == null) return false;
         ProviderConfig p = providers.get(m.provider);
         return "menu".equals(m.decisionMode) || (p != null && "typesafe".equals(p.type));
+    }
+
+    /**
+     * For a tools-mode model, the first model down its fallback chain served by a typesafe provider, or null. Such a
+     * fallback could never take the model's requests, which are chat requests with tools.
+     */
+    private String typesafeFallback(String key) {
+        if (isMenuMode(key)) return null;
+        Set<String> seen = new HashSet<>();
+        seen.add(key);
+        String next = models.get(key).fallback;
+        while (next != null && seen.add(next) && models.containsKey(next)) {
+            ProviderConfig p = providers.get(models.get(next).provider);
+            if (p != null && "typesafe".equals(p.type)) return next;
+            next = models.get(next).fallback;
+        }
+        return null;
     }
 
     private static boolean isHttpUrl(String url) {

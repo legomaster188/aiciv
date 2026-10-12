@@ -90,6 +90,19 @@ class ActionFactoryTest {
     }
 
     @Test
+    void exploreDescriptionDoesNotPromiseToAvoidWaterAndCliffs() {
+        for (var t : ToolCatalog.tools()) {
+            var fn = t.getAsJsonObject().getAsJsonObject("function");
+            if (!fn.get("name").getAsString().equals("explore")) continue;
+            String text = fn.get("description").getAsString();
+            assertFalse(text.contains("cliffs"), text);
+            assertTrue(text.contains("swim") && text.contains("drop up to 3 blocks"), text);
+            return;
+        }
+        fail("no explore tool");
+    }
+
+    @Test
     void guideExplainsChaining() {
         assertTrue(ToolCatalog.guide().contains("chain up to 6 actions"));
     }

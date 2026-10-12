@@ -23,7 +23,7 @@ public final class ToolCatalog {
         tools.add(fn("follow", "Follow a player for a while, staying close to them.", follow, "name"));
         JsonObject explore = props("direction", "string", "N, NE, E, SE, S, SW, W or NW.");
         explore.add("distance", prop("integer", "Blocks to walk, 1 to 128. Default 64."));
-        tools.add(fn("explore", "Walk in a compass direction to see new terrain, avoiding water and cliffs.", explore, "direction"));
+        tools.add(fn("explore", "Walk in a compass direction to see new terrain. On the way you may swim and drop up to 3 blocks.", explore, "direction"));
         JsonObject mine = props("block", "string", "Block id such as stone, iron_ore or oak_log; 'log' means any tree.");
         mine.add("count", prop("integer", "How many more to collect, 1 to 64. Default 1."));
         tools.add(fn("mine", "Mine `count` more of a block, moving between blocks or trees as needed; use 'log' for any tree. Uses your best tool and picks the drops up.", mine, "block"));

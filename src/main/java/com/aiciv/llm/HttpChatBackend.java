@@ -69,9 +69,14 @@ public final class HttpChatBackend implements ChatBackend {
         // Gemini answers HTTP 400 "API key not valid" for a bad key. Classify on the provider's own words.
         boolean badKey = status == 401 || status == 403 || (status == 400 && snippet(raw).contains("API key"));
         // Redact before condensing or cutting, so no part of the key survives at the cut.
-        String shown = snippet(apiKey == null || apiKey.isEmpty() ? raw : raw.replace(apiKey, "***"));
+        String shown = snippet(redact(raw, apiKey));
         if (badKey) return new BackendResult.Failed("HTTP " + status + " (key rejected): " + shown, true);
         return new BackendResult.Failed("HTTP " + status + ": " + shown, false);
+    }
+
+    /** The text with every copy of the key replaced by ***. */
+    static String redact(String text, String apiKey) {
+        return apiKey == null || apiKey.isEmpty() ? text : text.replace(apiKey, "***");
     }
 
     /** Condenses whitespace and cuts to 200 characters. */

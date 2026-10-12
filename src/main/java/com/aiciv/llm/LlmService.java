@@ -116,9 +116,14 @@ public final class LlmService {
         return config.models.keySet();
     }
 
-    /** The first route that would take a request right now, without using any budget. */
+    /**
+     * The first route that would take a request right now, without using any budget. A tools-mode model sends chat
+     * requests, which a decision-only provider never takes, so such a route is no route for it.
+     */
     public Optional<Route> peek(String modelKey) {
+        boolean menu = menuMode(modelKey);
         for (Route r : routes(modelKey)) {
+            if (!menu && !backends.containsKey(r.providerKey())) continue;
             if (health.get(r.providerKey()).available() && limiters.get(r.providerKey()).wouldAllow()) return Optional.of(r);
         }
         return Optional.empty();

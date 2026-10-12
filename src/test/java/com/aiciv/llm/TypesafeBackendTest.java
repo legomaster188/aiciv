@@ -152,4 +152,10 @@ class TypesafeBackendTest {
         BackendResult.Failed f = assertInstanceOf(BackendResult.Failed.class, call("/v1/systemone", "sk-verysecret-123", Duration.ofSeconds(5)));
         assertFalse(f.reason().contains("sk-verysecret-123"), f.reason());
     }
+    @Test
+    void theDebugLogOfABodyIsRedactedLikeAReason() {
+        assertEquals("{\"echo\":\"***\"}", HttpChatBackend.redact("{\"echo\":\"sk-verysecret-123\"}", "sk-verysecret-123"));
+        assertEquals("unchanged", HttpChatBackend.redact("unchanged", null));
+        assertEquals("unchanged", HttpChatBackend.redact("unchanged", ""));
+    }
 }

@@ -64,7 +64,7 @@ public final class TypesafeBackend {
                     if (err != null) return (BackendResult) new BackendResult.Failed("network: " + describe(err), false);
                     BackendResult r = HttpChatBackend.interpret(resp.statusCode(), resp.body(), resp.headers().firstValue("Retry-After"), apiKey);
                     if (r instanceof BackendResult.Ok ok && loggedFirst.compareAndSet(false, true)) {
-                        LOG.debug("First decision reply from {}: {}", endpoint, ok.body()); // the key is only ever in the header
+                        LOG.debug("First decision reply from {}: {}", endpoint, HttpChatBackend.redact(ok.body().toString(), apiKey));
                     }
                     return r;
                 });

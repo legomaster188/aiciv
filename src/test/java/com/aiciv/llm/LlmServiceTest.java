@@ -269,4 +269,20 @@ class LlmServiceTest {
         assertTrue(s.peek("jev").isPresent());
         assertTrue(s.trySend("jev", "sys", "user", new JsonArray()).isEmpty());
     }
+    /** The scheduler peeks before it sends; a peek must never promise a route that trySend cannot use. */
+    @Test
+    void aToolsModelNeverPeeksAtATypesafeFallback() throws Exception {
+        AiCivConfig c = AiCivConfig.GSON.fromJson("""
+            {"providers": {"a": {"baseUrl": "http://a", "rpd": 1}, "jev": {"type": "typesafe", "baseUrl": "http://localhost:1"}},
+             "models": {"ma": {"provider": "a", "model": "model-a", "fallback": "jev"},
+                        "menu": {"provider": "a", "model": "model-a", "decisionMode": "menu", "fallback": "jev"},
+                        "jev": {"provider": "jev", "model": "typesafe/jev-1.13"}},
+             "defaultModel": "ma"}""", AiCivConfig.class);
+        LlmService s = new LlmService(c, Map.of("a", new FakeBackend()),
+                Map.of("jev", new TypesafeBackend("http://localhost:1", null, null, Duration.ofSeconds(5))), clock);
+        send(s, "ma"); // uses provider a's only request today
+        assertTrue(s.trySend("ma", "sys", "user", new JsonArray()).isEmpty());
+        assertTrue(s.peek("ma").isEmpty(), "peek offered the typesafe fallback to a tools model");
+        assertEquals("jev", s.peek("menu").orElseThrow().providerKey());
+    }
 }
