@@ -13,8 +13,11 @@ import java.util.Optional;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.world.attribute.BedRule;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.level.block.AbstractBedBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
@@ -37,7 +40,8 @@ public final class SleepAction implements Action {
         ServerLevel level = p.level();
         switch (phase) {
             case FIND: {
-                if (!level.isDarkOutside() && !level.isThundering()) return ActionStatus.failed("you can only sleep at night or in a thunderstorm");
+                String rule = ruleProblem(level, p.blockPosition(), Blocks.BED.white());
+                if (rule != null) return ActionStatus.failed(rule);
                 Optional<BlockPos> found = freeBed(ctx, p);
                 if (found.isEmpty()) {
                     if (p.getInventory().getNonEquipmentItems().stream().noneMatch(s -> s.is(ItemTags.BEDS))) {
@@ -56,6 +60,9 @@ public final class SleepAction implements Action {
                 Approach.Status s = approach.tick(ctx);
                 if (s.state() == Approach.State.RUNNING) return ActionStatus.RUNNING;
                 if (s.state() == Approach.State.FAILED) return ActionStatus.failed(s.reason());
+                // The bed's own rule, checked right before the click: a bed that explodes (nether, end) is never used.
+                String rule = ruleProblem(level, bed, level.getBlockState(bed).getBlock());
+                if (rule != null) return ActionStatus.failed(rule);
                 BlockUse.click(p, bed);
                 if (!p.isSleeping()) return ActionStatus.failed(whyNot(level, p));
                 phase = Phase.SLEEP;
@@ -82,9 +89,24 @@ public final class SleepAction implements Action {
         return Optional.empty();
     }
 
+    /** True when a bed of the usual kind could be slept in at {@code pos} now: the dimension's bed rule allows it and the bed would not explode. */
+    public static boolean canSleep(ServerLevel level, BlockPos pos) {
+        return ruleProblem(level, pos, Blocks.BED.white()) == null;
+    }
+
+    /** Why {@code bedBlock}'s bed rule forbids sleeping at {@code pos} now, or null when it allows it. */
+    static String ruleProblem(ServerLevel level, BlockPos pos, Block bedBlock) {
+        if (!(bedBlock instanceof AbstractBedBlock b)) return "that is not a bed";
+        BedRule rule = b.getBedRule(level, pos);
+        if (rule.destroyOnUse()) return "beds explode here; you can't sleep in this dimension";
+        if (!rule.canSleep(level)) return "you can only sleep at night or in a thunderstorm";
+        return null;
+    }
+
     /** The first rule that stopped the bot from lying down. */
     private String whyNot(ServerLevel level, AiPlayer p) {
-        if (!level.isDarkOutside() && !level.isThundering()) return "you can only sleep at night or in a thunderstorm";
+        String rule = ruleProblem(level, bed, level.getBlockState(bed).getBlock());
+        if (rule != null) return rule;
         boolean monsters = !level.getEntitiesOfClass(Monster.class, new AABB(bed).inflate(8, 5, 8), m -> m.isPreventingPlayerRest(level, p)).isEmpty();
         return monsters ? "monsters are nearby" : "the bed is blocked or too far";
     }

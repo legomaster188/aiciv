@@ -89,7 +89,7 @@ public final class UtilityModule implements ToolModule {
     @Override
     public List<SnapshotSection> sections(AiPlayer bot, Attachments memory) {
         ServerLevel level = bot.level();
-        if (!level.isDarkOutside() && !level.isThundering()) return List.of();
+        if (!SleepAction.canSleep(level, bot.blockPosition())) return List.of(); // the bed rule: night, and no exploding beds
         return List.of(new SnapshotSection("Rest", List.of(NIGHT_LINE), null, List.of(CAN_SLEEP)));
     }
 

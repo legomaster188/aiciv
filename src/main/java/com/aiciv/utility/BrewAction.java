@@ -10,9 +10,11 @@ import com.aiciv.world.Finder;
 import com.aiciv.world.InventoryOps;
 import com.aiciv.world.MenuOps;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.function.Predicate;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.core.BlockPos;
@@ -60,6 +62,9 @@ public final class BrewAction implements Action {
     private int fillTries;
     private int waited;
     private String done;
+    /** Something of the bot's is in the stand (bottles, ingredient or fuel it put there), to take back if it stops early. */
+    private boolean loaded;
+    private boolean fuelPlaced;
 
     public BrewAction(String potion, int count) {
         this.potion = BrewTable.normalise(potion);
@@ -74,9 +79,9 @@ public final class BrewAction implements Action {
             case STAND -> findStand(ctx, p);
             case WATER -> fillBottles(p);
             case WALK -> walk(ctx);
-            case LOAD -> load(p);
+            case LOAD -> load(ctx, p);
             case WAIT -> waitForStage(ctx, p);
-            case COLLECT -> collect(p);
+            case COLLECT -> collect(ctx, p);
         };
     }
 
@@ -168,22 +173,25 @@ public final class BrewAction implements Action {
 
     // ---------------------------------------------------------------- the stand
 
-    private ActionStatus load(AiPlayer p) {
+    private ActionStatus load(BotContext ctx, AiPlayer p) {
         if (!near(p)) return again(Phase.LOAD);
         Stage st = stages.get(stage);
         BrewingStandMenu menu = MenuOps.open(p, stand, BrewingStandMenu.class);
         if (menu == null) return ActionStatus.failed("could not open the brewing stand");
         try {
-            for (int i = 0; i <= SLOT_FUEL; i++) {
-                if (menu.getSlot(i).hasItem() && i != SLOT_FUEL) return ActionStatus.failed("the brewing stand is already in use");
-            }
+            if (!clearLeftovers(ctx, p, menu)) return ActionStatus.failed("the brewing stand is already in use");
             if (menu.getFuel() <= 0 && !menu.getSlot(SLOT_FUEL).hasItem()) {
                 if (!placeOne(p, menu, s -> s.is(Items.BLAZE_POWDER), SLOT_FUEL)) return ActionStatus.failed("needs blaze_powder as fuel");
+                fuelPlaced = true;
+                markLoaded(ctx);
             }
             for (int i = 0; i < st.bottles(); i++) {
-                if (!placeOne(p, menu, s -> isPotion(s, st.base()), i)) return ActionStatus.failed("needs " + st.bottles() + " bottles of " + name(st.base()));
+                if (!placeOne(p, menu, s -> isPotion(s, st.base()), i)) {
+                    return failTakingBack(ctx, p, menu, "needs " + st.bottles() + " bottles of " + name(st.base()));
+                }
+                markLoaded(ctx);
             }
-            if (!placeOne(p, menu, s -> s.is(st.ingredient()), SLOT_INGREDIENT)) return ActionStatus.failed("needs " + id(st.ingredient()));
+            if (!placeOne(p, menu, s -> s.is(st.ingredient()), SLOT_INGREDIENT)) return failTakingBack(ctx, p, menu, "needs " + id(st.ingredient()));
         } finally {
             MenuOps.close(p);
         }
@@ -202,11 +210,14 @@ public final class BrewAction implements Action {
             phase = Phase.COLLECT;
             return ActionStatus.RUNNING;
         }
-        if (++waited > STAGE_WAIT) return ActionStatus.failed("the brewing stand stalled (is it out of fuel?)");
+        if (++waited > STAGE_WAIT) {
+            giveBack(ctx, p);
+            return ActionStatus.failed("the brewing stand stalled (is it out of fuel?)");
+        }
         return ActionStatus.RUNNING;
     }
 
-    private ActionStatus collect(AiPlayer p) {
+    private ActionStatus collect(BotContext ctx, AiPlayer p) {
         if (!near(p)) return again(Phase.COLLECT);
         Stage st = stages.get(stage);
         BrewingStandMenu menu = MenuOps.open(p, stand, BrewingStandMenu.class);
@@ -225,8 +236,81 @@ public final class BrewAction implements Action {
             phase = Phase.LOAD;
             return ActionStatus.RUNNING;
         }
+        forgetLoaded(ctx); // the ingredient and the fuel item are used up; nothing of the bot's is left in the stand
         done = "brewed " + count + " potion of " + potion;
         return ActionStatus.DONE;
+    }
+
+    // ---------------------------------------------------------------- leftovers and taking back
+
+    /**
+     * Before loading: a stand that is not brewing may still hold finished potions (anyone may take those, as in
+     * vanilla) and this bot's own leftovers from a brew it did not finish; both are collected first. False when the
+     * stand is still in use (brewing, or holding someone else's ingredient) or what is in it does not fit.
+     */
+    private boolean clearLeftovers(BotContext ctx, AiPlayer p, BrewingStandMenu menu) {
+        boolean any = false;
+        for (int i = 0; i < SLOT_FUEL; i++) any |= menu.getSlot(i).hasItem();
+        if (!any) return true;
+        if (menu.getBrewingTicks() > 0) return false;
+        boolean mine = loadedStands(ctx).contains(stand);
+        for (int i = 0; i < SLOT_FUEL; i++) {
+            if (menu.getSlot(i).hasItem() && (mine || i < SLOT_INGREDIENT)) menu.clicked(i, 0, ContainerInput.QUICK_MOVE, p);
+        }
+        for (int i = 0; i < SLOT_FUEL; i++) if (menu.getSlot(i).hasItem()) return false;
+        if (mine) forgetLoaded(ctx);
+        return true;
+    }
+
+    private ActionStatus failTakingBack(BotContext ctx, AiPlayer p, BrewingStandMenu menu, String reason) {
+        takeBack(ctx, p, menu);
+        return ActionStatus.failed(reason);
+    }
+
+    /** Takes back what the bot put in, through the stand's menu, when it is alive and can reach and see the stand. */
+    private void giveBack(BotContext ctx, AiPlayer p) {
+        if (!loaded || stand == null || p.isDeadOrDying() || !near(p)) return; // left in the stand; the next brew here collects it
+        if (p.containerMenu instanceof BrewingStandMenu open) {
+            takeBack(ctx, p, open);
+            return;
+        }
+        BrewingStandMenu menu = MenuOps.open(p, stand, BrewingStandMenu.class);
+        if (menu == null) return;
+        try {
+            takeBack(ctx, p, menu);
+        } finally {
+            MenuOps.close(p);
+        }
+    }
+
+    private void takeBack(BotContext ctx, AiPlayer p, BrewingStandMenu menu) {
+        boolean left = false;
+        int last = fuelPlaced ? SLOT_FUEL : SLOT_INGREDIENT; // fuel someone else left there stays
+        for (int i = 0; i <= last; i++) {
+            if (menu.getSlot(i).hasItem()) menu.clicked(i, 0, ContainerInput.QUICK_MOVE, p);
+            left |= menu.getSlot(i).hasItem();
+        }
+        if (!left) forgetLoaded(ctx);
+    }
+
+    private void markLoaded(BotContext ctx) {
+        loaded = true;
+        loadedStands(ctx).add(stand);
+    }
+
+    private void forgetLoaded(BotContext ctx) {
+        loaded = false;
+        loadedStands(ctx).remove(stand);
+    }
+
+    /** The stands this bot left something in, kept between actions so a later brew may take its own leftovers. */
+    private static Set<BlockPos> loadedStands(BotContext ctx) {
+        return ctx.attachments() == null ? new HashSet<>() : ctx.attachments().get(LoadedStands.class, LoadedStands::new).stands;
+    }
+
+    /** Per-bot memory of loaded brewing stands. */
+    static final class LoadedStands {
+        final Set<BlockPos> stands = new HashSet<>();
     }
 
     /** Walk back to the stand, then carry on with {@code next}. */
@@ -296,7 +380,9 @@ public final class BrewAction implements Action {
     public void cancel(BotContext ctx) {
         if (approach != null) approach.cancel(ctx);
         AiPlayer p = ctx.player();
-        if (p != null && p.containerMenu instanceof BrewingStandMenu) MenuOps.close(p);
+        if (p == null) return;
+        giveBack(ctx, p); // cancel, timeout and replace all end here: the bot's bottles and ingredient come back with it
+        if (p.containerMenu instanceof BrewingStandMenu) MenuOps.close(p);
     }
 
     @Override

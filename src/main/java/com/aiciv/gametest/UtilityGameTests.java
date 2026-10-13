@@ -9,6 +9,15 @@ import com.aiciv.utility.SleepAction;
 import com.aiciv.utility.UseBlockAction;
 import com.aiciv.world.InventoryOps;
 import java.util.List;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.BedBlock;
+import java.nio.file.Files;
+import com.aiciv.llm.ScriptedBackend;
+import com.aiciv.bot.BotManager;
+import com.aiciv.bot.Bot;
+import net.minecraft.world.level.Level;
+import net.minecraft.server.level.ServerLevel;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -20,6 +29,7 @@ import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.item.alchemy.Potions;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BrewingStandBlockEntity;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.LeverBlock;
 import net.minecraft.world.level.block.ButtonBlock;
@@ -184,5 +194,98 @@ public final class UtilityGameTests {
     private static boolean isAwkward(ItemStack s) {
         PotionContents c = s.get(DataComponents.POTION_CONTENTS);
         return c != null && c.is(Potions.AWKWARD);
+    }
+
+    private static ItemStack water() {
+        return PotionContents.createItemStack(Items.POTION, Potions.WATER);
+    }
+
+    private static int potions(AiPlayer p, net.minecraft.core.Holder<net.minecraft.world.item.alchemy.Potion> potion) {
+        return InventoryOps.count(p, x -> {
+            PotionContents c = x.get(DataComponents.POTION_CONTENTS);
+            return x.is(Items.POTION) && c != null && c.is(potion);
+        });
+    }
+
+    /** Stopping a brew halfway hands the bot back its bottles and ingredient through the stand's menu. */
+    @GameTest(maxTicks = 400)
+    public void cancelledBrewTakesItsItemsBack(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(4, 1, 3, Blocks.BREWING_STAND);
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestUtilBrewStop", 2.5, 3.5);
+        helper.runAfterDelay(395, () -> GameTestKit.remove(s));
+        AiPlayer p = s.bot().player;
+        ItemStack bottles = water();
+        bottles.setCount(3);
+        give(s, bottles, new ItemStack(Items.NETHER_WART), new ItemStack(Items.BLAZE_POWDER));
+        s.bot().executor.replace(List.of(new BrewAction("awkward", 3)), s.bot().context);
+        BrewingStandBlockEntity be = helper.getBlockEntity(new BlockPos(4, 1, 3), BrewingStandBlockEntity.class);
+        boolean[] stopped = {false};
+        helper.onEachTick(() -> {
+            if (!stopped[0] && !be.getItem(3).isEmpty()) { // loaded and brewing
+                s.bot().executor.stop(s.bot().context);
+                stopped[0] = true;
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(stopped[0], "the stand was never loaded: " + GameTestKit.events(s.bot()));
+            helper.assertTrue(potions(p, Potions.WATER) == 3, "water bottles back: " + potions(p, Potions.WATER));
+            helper.assertTrue(InventoryOps.count(p, x -> x.is(Items.NETHER_WART)) == 1, "the nether wart was not taken back");
+            for (int i = 0; i <= 3; i++) helper.assertTrue(be.getItem(i).isEmpty(), "slot " + i + " still holds " + be.getItem(i));
+            helper.assertTrue(p.containerMenu == p.inventoryMenu, "the stand screen is still open");
+            GameTestKit.remove(s);
+        });
+    }
+
+    /** Finished potions left in a stand (anyone may take them) are collected first, then the brew goes ahead. */
+    @GameTest(maxTicks = 1200)
+    public void brewCollectsFinishedPotionsFirst(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(4, 1, 3, Blocks.BREWING_STAND);
+        BrewingStandBlockEntity be = helper.getBlockEntity(new BlockPos(4, 1, 3), BrewingStandBlockEntity.class);
+        for (int i = 0; i < 3; i++) be.setItem(i, PotionContents.createItemStack(Items.POTION, Potions.AWKWARD));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestUtilBrewLeft", 2.5, 3.5);
+        helper.runAfterDelay(1195, () -> GameTestKit.remove(s));
+        AiPlayer p = s.bot().player;
+        ItemStack bottles = water();
+        bottles.setCount(3);
+        give(s, bottles, new ItemStack(Items.NETHER_WART), new ItemStack(Items.BLAZE_POWDER));
+        s.bot().executor.replace(List.of(new BrewAction("awkward", 3)), s.bot().context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(s.bot());
+            helper.assertTrue(events.contains("finished: brewed 3"), "the brew did not finish: " + events);
+            helper.assertTrue(potions(p, Potions.AWKWARD) == 6, "awkward potions held: " + potions(p, Potions.AWKWARD));
+            helper.assertTrue(p.containerMenu == p.inventoryMenu, "the stand screen is still open");
+            GameTestKit.remove(s);
+        });
+    }
+
+    /** In the nether a bed explodes when used: the bot refuses by the bed rule and never clicks it. */
+    @GameTest(maxTicks = 100)
+    public void neverSleepsWhereBedsExplode(GameTestHelper helper) throws Exception {
+        ServerLevel nether = helper.getLevel().getServer().getLevel(Level.NETHER);
+        helper.assertTrue(nether != null, "the test server has no nether");
+        BlockPos o = new BlockPos(4000, 100, 4000);
+        for (int x = -1; x <= 4; x++) {
+            for (int z = -1; z <= 3; z++) {
+                nether.setBlockAndUpdate(o.offset(x, -1, z), Blocks.STONE.defaultBlockState());
+                for (int y = 0; y <= 2; y++) nether.setBlockAndUpdate(o.offset(x, y, z), Blocks.AIR.defaultBlockState());
+            }
+        }
+        BlockState foot = Blocks.BED.white().defaultBlockState().setValue(BedBlock.FACING, Direction.SOUTH);
+        nether.setBlockAndUpdate(o, foot);
+        nether.setBlockAndUpdate(o.south(), foot.setValue(BedBlock.PART, BedPart.HEAD));
+        BotManager manager = AiCivGameTests.scriptedManager(helper, new ScriptedBackend(List.of()), Files.createTempDirectory("aiciv-gametest"));
+        Bot bot = manager.spawn("TestUtilNether", "scripted", "", nether, Vec3.atBottomCenterOf(o.east(2)));
+        GameTestKit.Spawned spawned = new GameTestKit.Spawned(manager, bot);
+        helper.onEachTick(manager::tickStart);
+        helper.runAfterDelay(95, () -> GameTestKit.remove(spawned));
+        bot.executor.replace(List.of(new SleepAction()), bot.context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(bot);
+            helper.assertTrue(events.contains("beds explode here"), "no refusal by the bed rule: " + events);
+            helper.assertTrue(nether.getBlockState(o).getBlock() instanceof BedBlock && !bot.player.isSleeping(), "the bed was used");
+            GameTestKit.remove(spawned);
+        });
     }
 }
