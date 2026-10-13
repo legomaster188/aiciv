@@ -58,7 +58,7 @@ public final class AttackAction implements Action {
     public ActionStatus tick(BotContext ctx) {
         AiPlayer me = ctx.player();
         if (target == null) {
-            target = resolve(me);
+            target = findTarget(me, label, SEARCH_RADIUS);
             if (target == null) return ActionStatus.failed("no " + label + " nearby");
         }
         if (!target.isAlive()) return ActionStatus.DONE;
@@ -127,21 +127,26 @@ public final class AttackAction implements Action {
 
     // ---------------------------------------------------------------- finding the target
 
-    private LivingEntity resolve(AiPlayer me) {
-        ServerPlayer player = me.level().getServer().getPlayerList().getPlayerByName(label);
+    /**
+     * The player called {@code label}, else the nearest living mob of the type it names, within {@code radius} of
+     * {@code me} in its level; null when there is none.
+     */
+    public static LivingEntity findTarget(AiPlayer me, String label, double radius) {
+        String name = PlayerNames.clean(label);
+        ServerPlayer player = me.level().getServer().getPlayerList().getPlayerByName(name);
         if (player != null && player != me && player.level() == me.level() && !player.isSpectator() && player.isAlive()
-                && me.distanceTo(player) <= SEARCH_RADIUS) {
+                && me.distanceTo(player) <= radius) {
             return player;
         }
-        EntityType<?> type = entityType(label);
+        EntityType<?> type = entityType(name);
         if (type == null) return null;
-        AABB box = me.getBoundingBox().inflate(SEARCH_RADIUS);
+        AABB box = me.getBoundingBox().inflate(radius);
         LivingEntity best = null;
         double bestDistance = Double.MAX_VALUE;
         for (LivingEntity e : me.level().getEntitiesOfClass(LivingEntity.class, box)) {
             if (e == me || e.getType() != type || !e.isAlive()) continue;
             double d = e.distanceToSqr(me);
-            if (d <= SEARCH_RADIUS * SEARCH_RADIUS && d < bestDistance) {
+            if (d <= radius * radius && d < bestDistance) {
                 bestDistance = d;
                 best = e;
             }
@@ -150,7 +155,7 @@ public final class AttackAction implements Action {
     }
 
     /** "zombie", "minecraft:zombie", "Zombies", "wolves" and "cave spider" all find their entity type, or null. */
-    static EntityType<?> entityType(String raw) {
+    public static EntityType<?> entityType(String raw) {
         String q = raw.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", "_");
         if (q.startsWith("minecraft:")) q = q.substring("minecraft:".length());
         String[] forms = {q, strip(q, "s", ""), strip(q, "es", ""), strip(q, "ves", "f")};
@@ -173,7 +178,7 @@ public final class AttackAction implements Action {
     // ---------------------------------------------------------------- weapons
 
     /** Swords, then other weapons, then axes, then any tool, each by attack damage; hands score nothing. */
-    static double weaponScore(ItemStack s) {
+    public static double weaponScore(ItemStack s) {
         if (s.isEmpty()) return 0;
         double damage = attackDamage(s);
         if (s.is(ItemTags.SWORDS)) return 1000 + damage;

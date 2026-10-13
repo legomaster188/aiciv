@@ -10,8 +10,10 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.Vec3;
 
 /** Walks to dropped items one at a time; vanilla picks them up when the bot gets close. */
-final class ItemGatherer {
-    private static final double CLOSE = 1.5;
+public final class ItemGatherer {
+    /** Vanilla picks up items within about 1.3 blocks sideways and half a block below the feet; stay inside that. */
+    private static final double CLOSE = 1.2;
+    private static final double BELOW = -0.6, ABOVE = 2.0;
     /** Ticks spent on one item before it counts as unreachable or unpickable (e.g. a full inventory). */
     private static final int GIVE_UP_TICKS = 100;
     /** A falling item moves, so the walk is re-aimed this often while the navigator is idle. */
@@ -27,12 +29,12 @@ final class ItemGatherer {
     private int airborne;
     private Vec3 goal;
 
-    ItemGatherer(Function<BotContext, List<ItemEntity>> finder) {
+    public ItemGatherer(Function<BotContext, List<ItemEntity>> finder) {
         this.finder = finder;
     }
 
     /** Steps toward the nearest item. Returns false once there is nothing left to walk to. */
-    boolean tick(BotContext ctx) {
+    public boolean tick(BotContext ctx) {
         Vec3 here = ctx.position();
         ItemEntity nearest = null;
         double best = Double.MAX_VALUE;
@@ -56,7 +58,7 @@ final class ItemGatherer {
             ignored.add(id);
             return true;
         }
-        if (Math.sqrt(best) <= CLOSE) return true; // close enough: only the pickup delay is left
+        if (inPickupRange(here, nearest.position())) return true; // only the pickup delay is left
         // A fresh drop is still falling; walking toward a spot in mid-air would only fail, so wait for it to land.
         if (!nearest.onGround() && !nearest.isInWater() && ++airborne <= AIR_WAIT_TICKS) return true;
         NavStatus status = ctx.navigator().status();
@@ -75,7 +77,16 @@ final class ItemGatherer {
         return true;
     }
 
-    void stop(BotContext ctx) {
+    /**
+     * Within the reach of vanilla's pickup box. A 3D radius would count an item lying in a one-deep hole beside the bot
+     * as close, and the bot would wait forever at the rim instead of stepping down to it.
+     */
+    private static boolean inPickupRange(Vec3 feet, Vec3 item) {
+        double dx = item.x - feet.x, dy = item.y - feet.y, dz = item.z - feet.z;
+        return dx * dx + dz * dz <= CLOSE * CLOSE && dy > BELOW && dy < ABOVE;
+    }
+
+    public void stop(BotContext ctx) {
         if (targetId >= 0) ctx.navigator().stop();
         targetId = -1;
     }

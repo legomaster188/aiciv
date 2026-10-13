@@ -7,6 +7,7 @@ import com.aiciv.actions.BotContext;
 import com.aiciv.actions.EatAction;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.bot.Bot;
+import com.aiciv.gear.AutoWear;
 import com.aiciv.perception.GameTime;
 import com.aiciv.reflex.ReflexPolicy.Reflex;
 import com.aiciv.reflex.ReflexPolicy.Snapshot;
@@ -34,6 +35,7 @@ public final class ReflexController {
     /** The same note is not repeated within this window (a long flight is several legs). */
     static final int NOTE_REPEAT_TICKS = 10 * 20;
 
+    private final AutoWear autoWear = new AutoWear();
     private Reflex active = Reflex.NONE;
     private boolean brainEating;
     private Action behaviour;
@@ -73,6 +75,7 @@ public final class ReflexController {
         }
         if (active == Reflex.NONE && wanted != Reflex.NONE) start(b, wanted, attacker);
         if (active == Reflex.NONE && b.executor.paused()) b.executor.resume(ctx);
+        if (active == Reflex.NONE) autoWear.tick(b);
     }
 
     /** Drops any reflex in progress and lets the actions run again, e.g. when the bot is respawned. */

@@ -23,7 +23,10 @@ public final class EquipAction implements Action {
     public ActionStatus tick(BotContext ctx) {
         AiPlayer player = ctx.player();
         ItemStack found = find(player);
-        if (found == null) return ActionStatus.failed("no " + item + " in inventory");
+        if (found == null) {
+            // Auto-wear may have put it on already; that is what was asked for.
+            return alreadyWorn(player) ? ActionStatus.DONE : ActionStatus.failed("no " + item + " in inventory");
+        }
         Equippable equippable = found.get(DataComponents.EQUIPPABLE);
         if (equippable != null && (equippable.slot().isArmor() || equippable.slot() == EquipmentSlot.OFFHAND)) {
             EquipmentSlot slot = equippable.slot();
@@ -36,6 +39,17 @@ public final class EquipAction implements Action {
         String wanted = idOf(found);
         InventoryOps.selectBest(player, s -> idOf(s).equals(wanted) ? 1 : 0);
         return ActionStatus.DONE;
+    }
+
+    private boolean alreadyWorn(AiPlayer player) {
+        String singular = item.endsWith("s") ? item.substring(0, item.length() - 1) : item;
+        for (EquipmentSlot slot : new EquipmentSlot[] {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET, EquipmentSlot.OFFHAND}) {
+            ItemStack worn = player.getItemBySlot(slot);
+            if (worn.isEmpty()) continue;
+            String id = idOf(worn);
+            if (id.equals(item) || id.equals(singular) || id.endsWith("_" + item)) return true;
+        }
+        return false;
     }
 
     /** A held stack the name refers to: exact id, a plural, or a family word ("pickaxe" for stone_pickaxe). */

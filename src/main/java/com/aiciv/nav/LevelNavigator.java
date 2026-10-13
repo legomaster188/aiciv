@@ -50,6 +50,7 @@ public final class LevelNavigator implements Navigator {
     public void tick() {
         if (goal == null) return;
         if (goal.reached(feet()) && (player.onGround() || player.isInWater())) {
+            if (follower != null && follower.finishingDoor(player)) return;
             arrive();
             return;
         }

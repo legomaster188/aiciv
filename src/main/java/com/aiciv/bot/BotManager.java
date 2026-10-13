@@ -38,6 +38,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 /** Owns every AI player in one server. All methods run on the server thread. */
@@ -187,6 +188,36 @@ public final class BotManager {
         Bot b = bots.get(key(name));
         if (b != null) b.brain.setGoal(goal);
         saveRoster();
+    }
+
+    /** Switches a bot to another configured model; it applies from the bot's next decision. */
+    public void setModel(String name, String modelKey) throws BotException {
+        Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
+        if (!llm.knowsModel(modelKey)) {
+            throw new BotException("Unknown model '" + modelKey + "'. Configured models: " + String.join(", ", llm.modelKeys()));
+        }
+        e.model = modelKey;
+        Bot b = bots.get(key(name));
+        if (b != null) b.brain.setModelKey(modelKey);
+        saveRoster();
+    }
+
+    /** Makes an online bot say something in chat, as if its model had chosen to. */
+    public void say(String name, String text) throws BotException {
+        Bot b = bots.get(key(name));
+        if (b == null) throw new BotException(name + " is not online");
+        if (b.player.isDeadOrDying()) throw new BotException(name + " is dead");
+        botSays(b, text);
+    }
+
+    /** Spawns where a command source cannot say: beside the first human player online, else at the world spawn. */
+    public Bot spawnAtDefault(String name, String modelKey, String persona) throws BotException {
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            if (!(p instanceof AiPlayer)) return spawn(name, modelKey, persona, p.level(), p.position());
+        }
+        ServerLevel level = server.overworld();
+        BlockPos at = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING, level.getRespawnData().pos());
+        return spawn(name, modelKey, persona, level, Vec3.atBottomCenterOf(at));
     }
 
     /** Pauses or resumes one bot, or all of them when target is null or "all". Returns how many changed. */
@@ -432,15 +463,19 @@ public final class BotManager {
         return GameTime.stamp(server.overworld().getOverworldClockTime());
     }
 
+    public static boolean isValidName(String name) {
+        return NAME.matcher(name).matches();
+    }
+
     static String key(String name) {
         return name.toLowerCase(Locale.ROOT);
     }
 
-    Collection<Bot> bots() { return bots.values(); }
+    public Collection<Bot> bots() { return bots.values(); }
     ThinkQueue queue() { return queue; }
-    LlmService llm() { return llm; }
-    AiCivConfig config() { return config; }
-    DecisionLog decisionLog() { return decisionLog; }
-    MinecraftServer server() { return server; }
-    Clock clock() { return clock; }
+    public LlmService llm() { return llm; }
+    public AiCivConfig config() { return config; }
+    public DecisionLog decisionLog() { return decisionLog; }
+    public MinecraftServer server() { return server; }
+    public Clock clock() { return clock; }
 }

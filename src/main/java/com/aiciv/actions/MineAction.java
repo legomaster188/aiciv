@@ -8,6 +8,7 @@ import com.aiciv.perception.Perceiver;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockNames;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import com.aiciv.world.Sight;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -143,8 +144,9 @@ public final class MineAction implements Action {
             }
             found.add(pos);
         }
+        PlacedBlocks placed = PlacedBlocks.of(level.getServer());
         List<BlockPos> out = new ArrayList<>();
-        for (BlockPos pos : found) if (!skipped.contains(pos)) out.add(pos);
+        for (BlockPos pos : found) if (!skipped.contains(pos) && !placed.isPlaced(level, pos)) out.add(pos);
         out.sort(Comparator.comparingDouble(p -> Vec3.atCenterOf(p).distanceToSqr(here)));
         return out;
     }
@@ -228,6 +230,7 @@ public final class MineAction implements Action {
     private static boolean diggable(AiPlayer player, ServerLevel level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         if (state.getDestroySpeed(level, pos) < 0 || !level.mayInteract(player, pos) || level.getBlockEntity(pos) != null) return false;
+        if (PlacedBlocks.of(level.getServer()).isPlacedByOther(level, pos, player.getScoreboardName())) return false;
         if (pos.equals(player.blockPosition().below())) return false;
         for (Direction d : Direction.values()) {
             if (!level.getFluidState(pos.relative(d)).isEmpty()) return false;

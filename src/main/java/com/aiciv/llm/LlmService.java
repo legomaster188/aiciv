@@ -261,6 +261,21 @@ public final class LlmService {
         return h != null && h.isAuthDisabled();
     }
 
+    /** One provider's limits and health for the admin panel; never carries a key. */
+    public record ProviderInfo(String name, int rpm, int rpd, int usedToday, boolean available, boolean disabled, String status) {}
+
+    public List<ProviderInfo> providerInfos() {
+        List<ProviderInfo> out = new ArrayList<>();
+        for (Map.Entry<String, ProviderConfig> e : config.providers.entrySet()) {
+            String p = e.getKey();
+            String status = health.get(p).status();
+            out.add(new ProviderInfo(p, e.getValue().rpm, e.getValue().rpd, limiters.get(p).usedToday(),
+                    health.get(p).available(), health.get(p).isAuthDisabled(),
+                    status.length() > 200 ? status.substring(0, 200) : status));
+        }
+        return out;
+    }
+
     public List<String> budgetLines() {
         List<String> lines = new ArrayList<>();
         for (String p : config.providers.keySet()) {

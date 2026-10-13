@@ -11,12 +11,14 @@ import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 /** Places a block against a neighbouring face, the way a survival player right-clicks. */
 public final class BlockPlacer {
-    public enum PlaceResult { PLACED, NO_ITEM, OCCUPIED, NO_SUPPORT, OUT_OF_REACH, REFUSED }
+    public enum PlaceResult { PLACED, NO_ITEM, OCCUPIED, NO_SUPPORT, OUT_OF_REACH, NOT_VISIBLE, REFUSED }
 
     /** Below first: bridging and pillaring both lean on the block underneath. */
     private static final Direction[] FACE_ORDER = {
@@ -30,13 +32,17 @@ public final class BlockPlacer {
         if (!level.getBlockState(target).canBeReplaced()) return PlaceResult.OCCUPIED;
         if (!level.mayInteract(p, target)) return PlaceResult.REFUSED;
         Direction face = null;
+        boolean supported = false;
         for (Direction d : FACE_ORDER) {
-            if (!level.getBlockState(target.relative(d)).canBeReplaced()) {
+            if (level.getBlockState(target.relative(d)).canBeReplaced()) continue;
+            supported = true;
+            if (canSeeFace(p, target, d)) {
                 face = d;
                 break;
             }
         }
-        if (face == null) return PlaceResult.NO_SUPPORT;
+        if (!supported) return PlaceResult.NO_SUPPORT;
+        if (face == null) return PlaceResult.NOT_VISIBLE;
         BlockPos neighbour = target.relative(face);
         Vec3 hit = Vec3.atCenterOf(target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
         double reach = p.blockInteractionRange();
@@ -53,6 +59,18 @@ public final class BlockPlacer {
             p.setShiftKeyDown(wasSneaking);
         }
         return level.getBlockState(target).canBeReplaced() ? PlaceResult.REFUSED : PlaceResult.PLACED;
+    }
+
+    /**
+     * Whether a ray from the eyes reaches the neighbour's face that touches the target (aimed just inside the neighbour),
+     * so a block is never placed against a face behind a wall. A replaceable plant in the target cell may catch the ray.
+     */
+    private static boolean canSeeFace(AiPlayer p, BlockPos target, Direction face) {
+        Vec3 aim = Vec3.atCenterOf(target).add(face.getStepX() * 0.55, face.getStepY() * 0.55, face.getStepZ() * 0.55);
+        BlockHitResult ray = p.level().clip(new ClipContext(p.getEyePosition(), aim, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, p));
+        if (ray.getType() != HitResult.Type.BLOCK) return false;
+        BlockPos hit = ray.getBlockPos();
+        return hit.equals(target.relative(face)) || hit.equals(target);
     }
 
     /** Puts the item on a free floor cell within 2 blocks of the bot's feet (not its own), nearest first. Null when none works. */

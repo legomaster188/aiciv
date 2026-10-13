@@ -26,6 +26,7 @@ public final class BlockBreaker {
     }
 
     public static final String NOT_IN_SIGHT = "not in sight";
+    public static final String PLACED_BY_OTHER = "someone else placed that";
     private static final int SWING_INTERVAL = 5;
 
     private final AiPlayer player;
@@ -33,15 +34,24 @@ public final class BlockBreaker {
     private BlockState startState;
     private float progress;
     private int ticks;
+    private boolean refused;
 
     public BlockBreaker(AiPlayer player) {
         this.player = player;
     }
 
+    /** Starts on {@code pos}; a block someone else placed is refused, and the next {@link #tick} reports it. */
     public void start(BlockPos pos) {
         cancel();
         target = pos.immutable();
         startState = player.level().getBlockState(target);
+        refused = placedByOther(target);
+    }
+
+    /** Every breaking path (navigation, mine, build, harvest) comes through here, so this is the one guard. */
+    private boolean placedByOther(BlockPos pos) {
+        ServerLevel level = (ServerLevel) player.level();
+        return PlacedBlocks.of(level.getServer()).isPlacedByOther(level, pos, player.getScoreboardName());
     }
 
     public boolean busy() {
@@ -52,6 +62,7 @@ public final class BlockBreaker {
         if (target != null) player.level().destroyBlockProgress(player.getId(), target, -1);
         target = null;
         startState = null;
+        refused = false;
         progress = 0;
         ticks = 0;
     }
@@ -63,6 +74,10 @@ public final class BlockBreaker {
         if (state.isAir()) {
             cancel();
             return Status.DONE;
+        }
+        if (refused || placedByOther(target)) {
+            cancel();
+            return Status.failed(PLACED_BY_OTHER);
         }
         if (state != startState) {
             cancel();

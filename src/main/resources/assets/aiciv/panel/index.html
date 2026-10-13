@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AiCiv Panel</title>
+<style>
+:root {
+  --bg: #0f1218; --panel: #171c26; --panel2: #1e2431; --line: #2b3345; --text: #e6e9f0; --dim: #8b94a8;
+  --accent: #5aa9ff; --good: #4cc38a; --warn: #f0b24a; --bad: #ef6461; --purple: #b18cff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #07101c; font-weight: 600; }
+button.danger:hover { border-color: var(--bad); color: var(--bad); }
+input, select, textarea { background: #0c0f15; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+header h1 span { color: var(--accent); }
+.clock { color: var(--dim); font-variant-numeric: tabular-nums; }
+.spacer { flex: 1; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.providers { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px 0; }
+.chip { font-size: 12px; padding: 2px 9px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+.chip b { color: var(--text); font-weight: 600; }
+.chip.ok { border-color: #2c6b4d; } .chip.bad { border-color: #7a3432; color: var(--bad); }
+.spawn { margin: 14px 20px 0; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.spawn input[name=name] { width: 140px; } .spawn input[name=persona] { flex: 1; min-width: 160px; }
+main { padding: 16px 20px 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.empty { grid-column: 1 / -1; color: var(--dim); text-align: center; padding: 60px 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color .15s; }
+.card:hover, .card.open { border-color: var(--accent); }
+.card.paused { opacity: .75; } .card.dead { border-color: var(--bad); }
+.top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name { font-size: 24px; font-weight: 700; margin-right: 4px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); flex: none; }
+.paused .dot { background: var(--warn); } .dead .dot { background: var(--bad); }
+.badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; padding: 2px 8px; border-radius: 6px; background: var(--panel2); color: var(--dim); }
+.badge.menu { color: var(--purple); } .badge.tools { color: var(--accent); }
+.badge.reflex { color: #07101c; background: var(--warn); } .badge.state { color: #07101c; }
+.badge.state.paused { background: var(--warn); } .badge.state.dead { background: var(--bad); }
+.model { color: var(--dim); font-size: 13px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bar { position: relative; height: 22px; background: #0c0f15; border-radius: 6px; overflow: hidden; }
+.bar > i { position: absolute; inset: 0 auto 0 0; }
+.bar > span { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 8px; font-size: 12px; font-weight: 600; text-shadow: 0 1px 2px #000a; }
+.hp > i { background: #b8413f; } .food > i { background: #b98a2f; }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 14px; }
+dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
+.decision { background: var(--panel2); border-radius: 10px; padding: 8px 10px; font-size: 14px; min-height: 52px; }
+.decision .when { color: var(--dim); font-size: 12px; margin-bottom: 3px; display: flex; gap: 8px; }
+.thought { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.calls { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.call { font: 12px ui-monospace, Consolas, monospace; background: #0c0f15; border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; overflow-wrap: anywhere; }
+.err { color: var(--bad); overflow-wrap: anywhere; } .dim { color: var(--dim); }
+.probs { margin-top: 6px; display: grid; gap: 3px; }
+.prob { display: grid; grid-template-columns: 110px 1fr 40px; gap: 6px; align-items: center; font-size: 12px; }
+.prob .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prob .tr { height: 8px; background: #0c0f15; border-radius: 4px; overflow: hidden; }
+.prob .tr i { display: block; height: 100%; background: var(--purple); }
+.prob.top .tr i { background: var(--accent); }
+.prob .pct { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.actions select { flex: 1; min-width: 120px; }
+.actions button { padding: 4px 10px; font-size: 13px; }
+aside { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100vw); background: var(--panel); border-left: 1px solid var(--line); transform: translateX(105%); transition: transform .2s; z-index: 10; display: flex; flex-direction: column; box-shadow: -10px 0 30px #0008; }
+aside.open { transform: none; }
+aside .head { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); gap: 10px; }
+aside .head h2 { margin: 0; font-size: 20px; flex: 1; }
+#feed { overflow-y: auto; padding: 12px 16px 30px; display: grid; gap: 10px; align-content: start; }
+.entry { background: var(--panel2); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
+.entry.fail { border-left: 3px solid var(--bad); }
+.entry .when { color: var(--dim); font-size: 12px; display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(30px); opacity: 0; transition: .2s; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; z-index: 20; max-width: 92vw; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%); } #toast.bad { border-color: var(--bad); color: #ffb3b1; } #toast.good { border-color: var(--good); }
+@media (max-width: 600px) {
+  header, .providers, .spawn, main { padding-left: 12px; padding-right: 12px; } .spawn { margin-left: 12px; margin-right: 12px; padding: 10px; }
+  main { grid-template-columns: 1fr; } .spawn input[name=name] { width: 100%; } .prob { grid-template-columns: 80px 1fr 38px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ai<span>Civ</span> panel</h1>
+  <span class="clock" id="clock">connecting...</span>
+  <span class="spacer"></span>
+  <div class="row">
+    <button id="reload">Reload config</button>
+    <button id="pauseAll">Pause all</button>
+    <button id="resumeAll">Resume all</button>
+  </div>
+</header>
+<div class="providers" id="providers"></div>
+<form class="spawn" id="spawn" autocomplete="off">
+  <input name="name" placeholder="Name" minlength="3" maxlength="16" pattern="[A-Za-z0-9_]{3,16}" required>
+  <select name="model"></select>
+  <input name="persona" placeholder="Persona (optional)">
+  <button class="primary">Spawn</button>
+</form>
+<main id="grid"><div class="empty">Waiting for the server...</div></main>
+<aside id="drawer">
+  <div class="head"><h2 id="drawerTitle"></h2><button id="drawerClose">Close</button></div>
+  <div id="feed"></div>
+</aside>
+<div id="toast"></div>
+<script>
+"use strict";
+// The token arrives in the URL fragment (never sent to the server). It is moved into this tab's session storage and
+// wiped from the address bar, so it does not show up on screen while recording; a refresh still works.
+const token = (() => {
+  const fromHash = new URLSearchParams(location.hash.slice(1)).get("t");
+  try {
+    if (fromHash) sessionStorage.setItem("aicivToken", fromHash);
+    const t = fromHash || sessionStorage.getItem("aicivToken") || "";
+    if (fromHash) history.replaceState(null, "", location.pathname);
+    return t;
+  } catch (e) {
+    return fromHash || "";
+  }
+})();
+const grid = document.getElementById("grid");
+const cards = new Map();
+let state = null, openBot = null, models = [];
+
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e[k] = v;
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return e;
+}
+
+let toastTimer;
+function toast(msg, ok) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.className = "show " + (ok ? "good" : "bad");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = "", ok ? 2500 : 6000);
+}
+
+async function api(path, body) {
+  if (!token) throw new Error("No access token. Run /ai panel in game and open the link it prints.");
+  const opts = { headers: { "X-AiCiv-Token": token } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  let data = null;
+  try { data = await r.json(); } catch (e) { /* not json */ }
+  if (r.status === 403) throw new Error("Access token rejected. Run /ai panel again (the server may have restarted).");
+  if (!r.ok) throw new Error((data && data.message) || ("HTTP " + r.status));
+  return data;
+}
+
+async function post(action, body, quiet) {
+  try { const d = await api("/api/" + action, body); if (!quiet) toast(d.message, true); poll(); return true; }
+  catch (e) { toast(e.message, false); return false; }
+}
+
+// ---- rendering -------------------------------------------------------------
+function clock(s) { return s.time + "  (tick " + s.dayTime + ")"; }
+function ago(iso) {
+  const t = Date.parse(iso); if (isNaN(t)) return "";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  return s < 60 ? s + "s ago" : s < 3600 ? Math.floor(s / 60) + "m ago" : Math.floor(s / 3600) + "h ago";
+}
+function clockTime(iso) { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString(); }
+function callText(c) {
+  const a = c.args && typeof c.args === "object" ? Object.values(c.args).map(v => typeof v === "object" ? JSON.stringify(v) : v).join(" ") : "";
+  return c.name + (a ? " " + a : "");
+}
+function pct(p) { return Math.round(p * 100) + "%"; }
+
+function decisionBody(d) {
+  const out = [];
+  if (!d) return [h("div", { class: "dim" }, "No decision yet")];
+  if (d.error) out.push(h("div", { class: "err" }, d.error));
+  if (d.discarded) out.push(h("div", { class: "dim" }, "Reply discarded: " + d.discarded));
+  if (d.thought) out.push(h("div", { class: "thought" }, d.thought));
+  else if (d.text) out.push(h("div", { class: "thought" }, d.text));
+  if (d.option) out.push(h("div", {}, "Chose ", h("b", {}, d.option), d.confidence != null ? h("span", { class: "dim" }, "  confidence " + pct(d.confidence)) : null));
+  if (d.probabilities) {
+    const top = Object.entries(d.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    out.push(h("div", { class: "probs" }, top.map(([k, v], i) =>
+      h("div", { class: "prob" + (i === 0 ? " top" : "") }, h("span", { class: "lab", title: k }, k),
+        h("span", { class: "tr" }, h("i", { style: "width:" + Math.max(1, Math.round(v * 100)) + "%" })), h("span", { class: "pct" }, pct(v))))));
+  }
+  if (d.calls && d.calls.length) out.push(h("div", { class: "calls" }, d.calls.map(c => h("span", { class: "call" }, callText(c)))));
+  if (d.problems && d.problems.length) out.push(h("div", { class: "err" }, d.problems.join("; ")));
+  return out;
+}
+
+function makeCard(name) {
+  const c = {};
+  c.name = h("span", { class: "name" });
+  c.stateBadge = h("span", { class: "badge state" });
+  c.mode = h("span", { class: "badge" });
+  c.reflex = h("span", { class: "badge reflex" });
+  c.model = h("div", { class: "model" });
+  c.hpFill = h("i"); c.hpText = h("span");
+  c.foodFill = h("i"); c.foodText = h("span");
+  c.pos = h("dd"); c.hold = h("dd"); c.act = h("dd"); c.goal = h("dd");
+  c.dec = h("div", { class: "decision" });
+  c.select = h("select", { title: "Change model", onchange: () => { post("model", { name, model: c.select.value }); }, onclick: e => e.stopPropagation() });
+  c.pause = h("button", { onclick: e => { e.stopPropagation(); post(c.paused ? "resume" : "pause", { name }); } });
+  c.root = h("div", { class: "card", onclick: () => openDrawer(name) },
+    h("div", { class: "top" }, h("span", { class: "dot" }), c.name, c.mode, c.reflex, c.stateBadge),
+    c.model,
+    h("div", { class: "bars" },
+      h("div", { class: "bar hp" }, c.hpFill, c.hpText), h("div", { class: "bar food" }, c.foodFill, c.foodText)),
+    h("dl", {}, h("dt", {}, "Position"), c.pos, h("dt", {}, "Holding"), c.hold, h("dt", {}, "Doing"), c.act, h("dt", {}, "Goal"), c.goal),
+    c.dec,
+    h("div", { class: "actions" }, c.pause,
+      h("button", { onclick: e => { e.stopPropagation(); const t = prompt("What should " + name + " say?"); if (t) post("say", { name, text: t }); } }, "Say"),
+      h("button", { onclick: e => { e.stopPropagation(); const g = prompt("Goal for " + name + ":", c.goalText || ""); if (g !== null) post("goal", { name, goal: g }); } }, "Set goal"),
+      h("button", { class: "danger", onclick: e => { e.stopPropagation(); if (confirm("Remove " + name + " from the world and the roster?")) post("remove", { name }); } }, "Remove"),
+      c.select));
+  c.name.textContent = name;
+  return c;
+}
+
+function fillSelect(sel, keep) {
+  const keys = models.map(m => m.key);
+  if ([...sel.options].map(o => o.value).join("|") !== keys.join("|")) {
+    sel.replaceChildren(...keys.map(k => h("option", { value: k }, k)));
+  }
+  if (keep != null && document.activeElement !== sel) sel.value = keep;
+}
+
+function render(s) {
+  state = s; models = s.models;
+  document.getElementById("clock").textContent = clock(s);
+  document.getElementById("providers").replaceChildren(...s.providers.map(p => {
+    const bad = p.disabled || !p.available;
+    return h("span", { class: "chip " + (bad ? "bad" : "ok"), title: p.status },
+      h("b", {}, p.name), "  " + p.usedToday + (p.rpd ? "/" + p.rpd : "") + " today" + (p.rpm ? "  " + p.rpm + "/min" : ""), bad ? "  " + p.status : "");
+  }));
+  fillSelect(document.querySelector("#spawn select"), null);
+
+  const seen = new Set();
+  for (const b of s.bots) {
+    seen.add(b.name);
+    let c = cards.get(b.name);
+    if (!c) { c = makeCard(b.name); cards.set(b.name, c); }
+    c.paused = b.paused; c.goalText = b.goal;
+    c.root.classList.toggle("paused", b.paused && !b.dead);
+    c.root.classList.toggle("dead", b.dead);
+    c.root.classList.toggle("open", openBot === b.name);
+    c.stateBadge.textContent = b.dead ? "dead" : b.paused ? "paused" : "";
+    c.stateBadge.className = "badge state " + (b.dead ? "dead" : "paused");
+    c.stateBadge.style.display = b.dead || b.paused ? "" : "none";
+    c.mode.textContent = b.mode; c.mode.className = "badge " + b.mode;
+    c.reflex.textContent = b.reflex ? "reflex: " + b.reflex.replaceAll("_", " ") : "";
+    c.reflex.style.display = b.reflex ? "" : "none";
+    c.model.textContent = b.model + (b.provider ? "  ·  " + b.provider : "");
+    c.hpFill.style.width = Math.max(0, Math.min(100, b.health / 20 * 100)) + "%"; c.hpText.textContent = "Health " + b.health + " / 20";
+    c.foodFill.style.width = Math.max(0, Math.min(100, b.food / 20 * 100)) + "%"; c.foodText.textContent = "Food " + b.food + " / 20";
+    c.pos.textContent = Math.round(b.x) + " " + Math.round(b.y) + " " + Math.round(b.z) + "  ·  " + b.dimension.replace("minecraft:", "");
+    c.hold.textContent = b.holding || "nothing";
+    c.act.textContent = b.action;
+    c.goal.textContent = b.goal || "(none)";
+    c.pause.textContent = b.paused ? "Resume" : "Pause";
+    fillSelect(c.select, b.model);
+    const d = b.lastDecision;
+    c.dec.replaceChildren(h("div", { class: "when" }, d ? [d.trigger ? d.trigger.toLowerCase().replaceAll("_", " ") : "", ago(d.time)] : "Last decision"), ...decisionBody(d));
+    if (c.root.parentNode !== grid) grid.append(c.root);
+  }
+  for (const [name, c] of cards) if (!seen.has(name)) { c.root.remove(); cards.delete(name); if (openBot === name) closeDrawer(); }
+  // keep cards in server order
+  s.bots.forEach((b, i) => { if (grid.children[i] !== cards.get(b.name).root) grid.insertBefore(cards.get(b.name).root, grid.children[i] || null); });
+  const empty = grid.querySelector(".empty");
+  if (s.bots.length === 0) { if (empty) empty.textContent = "No AI players yet. Spawn one above."; else grid.replaceChildren(h("div", { class: "empty" }, "No AI players yet. Spawn one above.")); }
+  else if (empty) empty.remove();
+}
+
+// ---- decision drawer ---------------------------------------------------------
+const drawer = document.getElementById("drawer"), feed = document.getElementById("feed");
+function openDrawer(name) { openBot = name; document.getElementById("drawerTitle").textContent = name + " · decisions"; feed.replaceChildren(); drawer.classList.add("open"); loadFeed(); if (state) render(state); }
+function closeDrawer() { openBot = null; drawer.classList.remove("open"); if (state) render(state); }
+document.getElementById("drawerClose").onclick = closeDrawer;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+
+async function loadFeed() {
+  const name = openBot; if (!name) return;
+  try {
+    const d = await api("/api/decisions?bot=" + encodeURIComponent(name) + "&limit=50");
+    if (openBot !== name) return;
+    feed.replaceChildren(...(d.decisions.length ? d.decisions.map(x =>
+      h("div", { class: "entry" + (x.error ? " fail" : "") },
+        h("div", { class: "when" }, clockTime(x.time), x.trigger ? x.trigger.toLowerCase().replaceAll("_", " ") : "", x.provider || "", x.model || ""),
+        ...decisionBody(x))) : [h("div", { class: "dim" }, "Nothing logged for " + name + " yet")]));
+  } catch (e) { /* the state poll already reports connection problems */ }
+}
+setInterval(loadFeed, 3000);
+
+// ---- polling and controls ----------------------------------------------------
+let failing = false;
+async function poll() {
+  try { render(await api("/api/state")); failing = false; }
+  catch (e) {
+    document.getElementById("clock").textContent = "disconnected";
+    if (!failing) toast(e.message, false);
+    failing = true;
+  }
+}
+setInterval(poll, 1000); poll();
+
+document.getElementById("reload").onclick = () => post("reload", {});
+document.getElementById("pauseAll").onclick = () => post("pause", { name: "all" });
+document.getElementById("resumeAll").onclick = () => post("resume", { name: "all" });
+document.getElementById("spawn").onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target.elements;
+  if (await post("spawn", { name: f.name.value.trim(), model: f.model.value, persona: f.persona.value.trim() })) { f.name.value = ""; f.persona.value = ""; }
+};
+</script>
+</body>
+</html>

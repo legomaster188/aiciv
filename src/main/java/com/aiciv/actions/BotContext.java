@@ -29,4 +29,15 @@ public interface BotContext {
      * cancels whenever it plans, stops or arrives, so an action that breaks while navigating would lose its dig.
      */
     BlockBreaker breaker();
+
+    /** Adds a line to this bot's event log without waking it. */
+    default void event(String text) {}
+
+    /** Adds an event line to another bot, if {@code botName} is an online bot. */
+    default void tell(String botName, String text) {}
+
+    /** This bot's module memory; null in fakes that keep none. */
+    default Attachments attachments() {
+        return null;
+    }
 }

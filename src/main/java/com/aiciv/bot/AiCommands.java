@@ -1,6 +1,7 @@
 package com.aiciv.bot;
 
 import com.aiciv.AiCiv;
+import com.aiciv.panel.PanelServer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -8,15 +9,18 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 
-/** /ai spawn | remove | list | goal | pause | resume | status | budget | reload (needs op level 2). */
+/** /ai spawn | remove | list | goal | pause | resume | status | budget | model | panel | reload (needs op level 2). */
 public final class AiCommands {
     @FunctionalInterface
     private interface BotOp {
@@ -62,6 +66,13 @@ public final class AiCommands {
                                 .executes(c -> pause(c, StringArgumentType.getString(c, "target"), false))))
                 .then(Commands.literal("status").then(botName().executes(c -> lines(c, m -> m.statusLines(name(c))))))
                 .then(Commands.literal("budget").executes(c -> lines(c, BotManager::budgetLines)))
+                .then(Commands.literal("model").then(botName()
+                        .then(Commands.argument("model", StringArgumentType.word()).suggests(AiCommands::suggestModels)
+                                .executes(c -> run(c, m -> {
+                                    m.setModel(name(c), StringArgumentType.getString(c, "model"));
+                                    return name(c) + " now uses " + StringArgumentType.getString(c, "model");
+                                })))))
+                .then(Commands.literal("panel").executes(AiCommands::panel))
                 .then(Commands.literal("reload").executes(AiCommands::reload)));
     }
 
@@ -83,6 +94,20 @@ public final class AiCommands {
 
     private static int pause(CommandContext<CommandSourceStack> c, String target, boolean paused) {
         return run(c, m -> (paused ? "Paused " : "Resumed ") + m.setPaused(target, paused) + " AI player(s)");
+    }
+
+    /** Shows the signed-in panel link to whoever asked, and nobody else; it carries the panel's access token. */
+    private static int panel(CommandContext<CommandSourceStack> c) {
+        PanelServer panel = AiCiv.panel();
+        if (panel == null) {
+            c.getSource().sendFailure(Component.literal("The AiCiv panel is not running (disabled in aiciv.json, or its port is taken; see the server log)"));
+            return 0;
+        }
+        String link = panel.linkWithToken();
+        Component clickable = Component.literal(link).withStyle(s -> s.withUnderlined(true).withColor(ChatFormatting.AQUA)
+                .withClickEvent(new ClickEvent.OpenUrl(URI.create(link))));
+        c.getSource().sendSuccess(() -> Component.literal("AiCiv panel: ").append(clickable), false);
+        return 1;
     }
 
     private static int reload(CommandContext<CommandSourceStack> c) {

@@ -1,10 +1,11 @@
 package com.aiciv.actions;
 
 import com.aiciv.llm.ToolCall;
-import com.google.gson.JsonElement;
+import com.aiciv.modules.ToolModules;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /** Validates a model's tool call and builds the action, or explains what was wrong. */
@@ -14,23 +15,42 @@ public final class ActionFactory {
         record Invalid(String reason) implements Result {}
     }
 
+    /** The core actions; {@link #available()} adds the modules' tools. */
     static final String AVAILABLE = "say, goTo, goToPlayer, follow, explore, mine, collect, craft, smelt, place, eat, equip, attack, stop";
-    static final int WORLD_LIMIT = 29_999_984;
     private static final Set<String> KNOWN = Set.of("say", "goto", "gotoplayer", "follow", "explore", "mine", "collect",
             "craft", "smelt", "place", "eat", "equip", "attack", "stop");
 
     private ActionFactory() {}
 
-    /** The normalised names the factory accepts; the catalog test keeps this in step with {@link ToolCatalog}. */
-    static Set<String> knownKeys() {
+    /** The core actions' normalised names; module tools may not reuse them. */
+    public static Set<String> coreKeys() {
         return KNOWN;
     }
 
+    /** Every normalised name the factory accepts; the sync tests keep this in step with {@link ToolCatalog}. */
+    public static Set<String> knownKeys() {
+        Set<String> out = new LinkedHashSet<>(KNOWN);
+        out.addAll(ToolModules.keys());
+        return out;
+    }
+
+    /** The core actions, then the module tools in catalog order. */
+    public static String available() {
+        List<String> names = new ArrayList<>(List.of(AVAILABLE));
+        for (JsonObject t : ToolModules.tools()) names.add(t.getAsJsonObject("function").get("name").getAsString());
+        return String.join(", ", names);
+    }
+
     public static Result create(ToolCall call) {
-        String key = call.name() == null ? "" : call.name().toLowerCase(Locale.ROOT).replace("_", "").replace("-", "");
-        if (!KNOWN.contains(key)) return invalid("unknown action '" + call.name() + "'. Available: " + AVAILABLE);
+        String key = ToolModules.normalise(call.name());
+        boolean core = KNOWN.contains(key);
+        if (!core && !ToolModules.keys().contains(key)) return invalid("unknown action '" + call.name() + "'. Available: " + available());
         if (call.argsError() != null) return invalid(call.argsError());
         JsonObject a = call.args();
+        if (!core) {
+            Result r = ToolModules.create(key, a);
+            return r != null ? r : invalid("unknown action '" + call.name() + "'. Available: " + available());
+        }
         switch (key) {
             case "say": {
                 String text = str(a, "text");
@@ -40,8 +60,8 @@ public final class ActionFactory {
             case "goto": {
                 Integer x = integer(a, "x"), y = integer(a, "y"), z = integer(a, "z");
                 if (x == null || y == null || z == null) return invalid("goTo needs whole numbers x, y and z");
-                if (y < -64 || y > 320) return invalid("goTo y must be between -64 and 320");
-                if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return invalid("goTo x and z must be inside the world border");
+                String range = Args.rangeProblem("goTo", x, y, z);
+                if (range != null) return invalid(range);
                 return new Result.Ok(new GoToAction(x, y, z));
             }
             case "gotoplayer": {
@@ -86,8 +106,8 @@ public final class ActionFactory {
                 Integer x = integer(a, "x"), y = integer(a, "y"), z = integer(a, "z");
                 if (block == null || block.isBlank()) return invalid("place needs a \"block\" name, e.g. torch");
                 if (x == null || y == null || z == null) return invalid("place needs whole numbers x, y and z");
-                if (y < -64 || y > 320) return invalid("place y must be between -64 and 320");
-                if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return invalid("place x and z must be inside the world border");
+                String range = Args.rangeProblem("place", x, y, z);
+                if (range != null) return invalid(range);
                 return new Result.Ok(new PlaceAction(block, x, y, z));
             }
             case "eat":
@@ -113,23 +133,12 @@ public final class ActionFactory {
         return count == null ? 1 : Math.max(1, Math.min(64, count));
     }
 
-    /** A whole number from a JSON number or numeric string; fractions round down to the containing block. */
     static Integer integer(JsonObject a, String k) {
-        JsonElement e = a.get(k);
-        if (e == null || !e.isJsonPrimitive()) return null;
-        JsonPrimitive p = e.getAsJsonPrimitive();
-        try {
-            double d = p.isNumber() ? p.getAsDouble() : Double.parseDouble(p.getAsString().trim());
-            if (Double.isNaN(d) || Double.isInfinite(d)) return null;
-            return (int) Math.floor(d);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return Args.integer(a, k);
     }
 
     static String str(JsonObject a, String k) {
-        JsonElement e = a.get(k);
-        return e != null && e.isJsonPrimitive() ? e.getAsString() : null;
+        return Args.str(a, k);
     }
 
     private static Result invalid(String reason) {

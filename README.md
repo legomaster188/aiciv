@@ -2,7 +2,7 @@
 
 AI players for Minecraft 26.3, each driven by a language model (Gemini, Groq, OpenRouter,
 GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model). They join as normal
-players, chat, and walk around. Milestone 1 of the design in
+players, chat, and walk around. Milestones 1 to 3 (chat, survival, building and society) of the design in
 `docs/superpowers/specs/2026-10-11-aiciv-design.md`.
 
 Server-side only: viewers join with an unmodded 26.3 client. Works in singleplayer too.
@@ -93,10 +93,51 @@ furnaces and fuel, reach, attack cooldown). Each action ends as done or failed w
 | `eat()` | Eats the best food carried |
 | `equip(item)` | Wears armor or holds a tool |
 | `attack(target)` | Fights a mob type or player with the best weapon carried |
+| `build(name, layers, legend, x, y, z, facing)` | Builds a blueprint from carried blocks (see below); `x y z facing` are optional |
+| `build_template(template, material, name, size)` | Builds a `hut`, `tower`, `wall`, `bridge` or `farm_plot` from one material |
+| `place_chest()`, `look_in_chest(x, y, z)` | Places a chest; opens one and reads what is inside |
+| `deposit(items, x, y, z)`, `withdraw(item, count, x, y, z)` | Puts items in a chest (`all`, `all_except_tools` or a list); takes some out |
+| `give(name, item, count)`, `drop(item, count)` | Throws items to a player, or onto the ground |
+| `rename(item, name)`, `name_mob(target, name)`, `sign(text)` | Anvil rename (pays the real level cost), name tag on a mob, write a sign |
+| `combat(moves)` | Up to 12 exact moves: `attack_once`, `strafe`, `back_off`, `jump_crit`, `shield`, `bow`, `hotbar` |
+| `trade_list(villager)`, `trade(villager, want, offer, times)` | Reads a villager's offers; trades 1 to 12 times at the real price |
+| `till(count)`, `plant(seed, count)`, `harvest(count)` | Hoe soil near water, sow seeds, harvest ripe crops and replant |
+| `breed(animal)`, `fish(catches)` | Feed two adults; cast a real rod and reel in bites |
+| `sleep()`, `use_block(x, y, z)` | Sleep in a bed (places one it carries) at night; press, flip or open a block |
+| `enchant(item, option)`, `brew(potion, count)` | Enchanting table (lapis and levels) and brewing stand |
 | `stop()` | Stand still |
 
 Tip: one turn can chain up to 6 actions (`maxActionsPerDecision`), for example
 `mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe`.
+
+### Building
+
+`build` takes a blueprint: `layers` from bottom to top, each a list of rows (row 0 nearest the builder, columns
+left to right), and a `legend` from one-character symbols to block ids. `.` means the cell must be air and a space
+means leave it alone. Without `x y z` it is built centred 2 blocks in front of the bot; `facing` is N, E, S or W.
+The limit is 16 x 16 x 16. A 5 x 5 hut with a doorway (55 planks):
+
+```json
+{ "name": "ada_hut", "facing": "S", "x": 10, "y": 64, "z": -3, "legend": { "p": "oak_planks" },
+  "layers": [
+    ["pp.pp", "p...p", "p...p", "p...p", "ppppp"],
+    ["pp.pp", "p...p", "p...p", "p...p", "ppppp"],
+    ["ppppp", "ppppp", "ppppp", "ppppp", "ppppp"] ] }
+```
+
+The bot must carry every block (a missing-materials list is the failure), places them bottom-up from where it can
+reach and see a face, pillars with throwaway blocks for high cells, and takes that scaffolding down and picks it
+up afterwards. Beds cannot be part of a blueprint: use `place`. Finished builds are remembered per world in
+`<world>/aiciv/structures.json` and listed in every bot's view.
+
+**Bots never break blocks other players or bots placed.** Every placed block is recorded in
+`<world>/aiciv/placed.json`; navigation never digs them, `mine` skips them and `build` fails rather than clearing them.
+Natural blocks in a footprint are cleared.
+
+### Testing sleep
+
+Sleeping only works at night or in a thunderstorm. Game tests that need night use the `aiciv:night` test
+environment, which runs them in their own batch with the clock set to night. To try it by hand, set the time with `/time set night`.
 
 Fighting mobs needs the world difficulty set to Easy or higher; on Peaceful hostile mobs do not spawn.
 
@@ -113,9 +154,33 @@ In singleplayer, `/ai` needs cheats enabled for the world.
 | `/ai pause [name\|all]`, `/ai resume [name\|all]` | Stops or restarts thinking and acting |
 | `/ai status <name>` | Details for one AI player |
 | `/ai budget` | Requests used and left per provider, and provider health |
+| `/ai model <name> <model>` | Switches an AI player to another configured model |
+| `/ai panel` | Prints the clickable link to the admin panel (only you see it) |
 | `/ai reload` | Re-reads `aiciv.json` and `keys.json` |
 
 AI players notice chat within 64 blocks, and any chat that names them from anywhere.
+
+## Admin panel
+
+While a world is running, AiCiv serves a local control page at `http://localhost:8765/`. Run `/ai panel`
+in game and click the link it prints; the link carries an access token that changes each time the server starts. The page shows every AI
+player live (model, health, food, position, current action, last thought or Jev probabilities), lets you
+spawn, remove, pause, resume, change model, set a goal or make a bot say something, reload the config,
+and shows each bot's decision feed when you click its card. The layout suits a second monitor and narrow
+windows alike.
+
+Configure it in `aiciv.json` (the default if the block is missing):
+
+```json
+"panel": { "enabled": true, "port": 8765 }
+```
+
+Security: it listens on 127.0.0.1 only, never on the network. Every API call needs the token, which is
+random per server start, lives in the link's `#` fragment (never sent to the server or logged) and is
+printed only to the operator who runs `/ai panel`. Requests with a foreign `Origin` or `Host` are
+refused. The panel never shows API keys. If the port is taken the server log says so and AiCiv carries on
+without the panel; change `panel.port` and restart. Changes made in the panel run on the server thread
+exactly like the matching `/ai` commands.
 
 ## Logs
 
@@ -132,7 +197,8 @@ Developers: `./gradlew test` runs the unit tests, `./gradlew runGametest` the in
 
 ## Limits
 
-No building plans or chests yet.
+Blueprints are limited to 16 x 16 x 16 and bots build one at a time. Bots only use villagers, chests,
+anvils, enchanting tables and brewing stands through their real menus.
 
 A bot that dies respawns like a player (at the world spawn or its bed) with full health, and is
 told what killed it and where its items dropped.
