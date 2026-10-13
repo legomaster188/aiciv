@@ -30,7 +30,11 @@ public final class PlaceChestAction implements Action {
         long tick = p.level().getGameTime();
         Pos at = new Pos(cell.getX(), cell.getY(), cell.getZ());
         if (ctx.knownBlocks() != null) ctx.knownBlocks().see("chest", at, tick);
-        if (ctx.attachments() != null) ctx.attachments().get(ChestMemory.class, ChestMemory::new).seen(at, Map.of(), tick);
+        if (ctx.attachments() != null) {
+            ChestMemory chests = ctx.attachments().get(ChestMemory.class, ChestMemory::new);
+            chests.enterDimension(p.level().dimension().identifier().toString());
+            chests.seen(at, Map.of(), tick);
+        }
         doneSummary = "placed a chest at " + cell.getX() + " " + cell.getY() + " " + cell.getZ();
         return ActionStatus.DONE;
     }

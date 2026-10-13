@@ -52,6 +52,20 @@ public final class GameTestKit {
         return s;
     }
 
+    /**
+     * Like {@link #spawn}, with {@code afterTick} run right after the bot's actions tick. Separate {@code onEachTick}
+     * runnables run in no fixed order within a tick (they sit in a hash map), so a check that must see the state an
+     * action left after its tick has to run here.
+     */
+    public static Spawned spawn(GameTestHelper helper, String name, double x, double z, Runnable afterTick) {
+        Spawned s = create(helper, name, x, z, new ScriptedBackend(List.of()));
+        helper.onEachTick(() -> {
+            s.manager().tickStart();
+            afterTick.run();
+        });
+        return s;
+    }
+
     /** A bot whose decisions come from {@code backend}; the manager ticks fully, so it thinks and acts. */
     public static Spawned spawnScripted(GameTestHelper helper, String name, double x, double z, ScriptedBackend backend) {
         Spawned s = create(helper, name, x, z, backend);

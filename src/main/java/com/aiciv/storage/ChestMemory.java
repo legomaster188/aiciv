@@ -17,6 +17,13 @@ public final class ChestMemory {
     private record Entry(Map<String, Integer> contents, long tick) {}
 
     private final Map<Pos, Entry> entries = new LinkedHashMap<>();
+    private String dimension;
+
+    /** Positions only mean something in one dimension: forget every chest when the bot changes dimension. */
+    public void enterDimension(String key) {
+        if (dimension != null && !dimension.equals(key)) entries.clear();
+        dimension = key;
+    }
 
     /** Remembers {@code contents} (item id to count) of the container at {@code pos}; past capacity the least recently seen is dropped. */
     public void seen(Pos pos, Map<String, Integer> contents, long tick) {
@@ -62,9 +69,14 @@ public final class ChestMemory {
 
     /** The item ids remembered in the container nearest to {@code from}, most plentiful first; empty when none is known. */
     public List<String> nearestKinds(Pos from) {
+        return nearest(from).map(best -> byCount(entries.get(best).contents()).stream().map(Map.Entry::getKey).toList()).orElse(List.of());
+    }
+
+    /** The remembered container nearest to {@code from}: the one {@link #nearestKinds} describes. */
+    public Optional<Pos> nearest(Pos from) {
         Pos best = null;
         for (Pos p : entries.keySet()) if (best == null || distanceSquared(from, p) < distanceSquared(from, best)) best = p;
-        return best == null ? List.of() : byCount(entries.get(best).contents()).stream().map(Map.Entry::getKey).toList();
+        return Optional.ofNullable(best);
     }
 
     private static String line(Pos from, Pos p, Map<String, Integer> contents) {

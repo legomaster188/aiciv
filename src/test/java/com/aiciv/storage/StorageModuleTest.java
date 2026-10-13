@@ -98,4 +98,16 @@ class StorageModuleTest {
         JsonObject give = module.tools().stream().map(t -> t.getAsJsonObject("function")).filter(f -> f.get("name").getAsString().equals("give")).findFirst().orElseThrow();
         assertEquals(List.of("name", "item", "count"), List.copyOf(give.getAsJsonObject("parameters").getAsJsonObject("properties").keySet()));
     }
+
+    @Test
+    void withdrawOptionNamesTheRememberedChest() {
+        SnapshotSection chest = new SnapshotSection("Chests", List.of("chest at 12 64 -7"), null, List.of("chest_item:dirt", "chest_at:12:64:-7"));
+        MenuOption o = module.menuOptions(Samples.snapshot(List.of(), List.of(chest)), Samples.context(Map.of())).stream()
+                .filter(x -> x.id().equals("withdraw_dirt")).findFirst().orElseThrow();
+        JsonObject args = o.calls().get(0).args();
+        assertEquals(12, args.get("x").getAsInt());
+        assertEquals(64, args.get("y").getAsInt());
+        assertEquals(-7, args.get("z").getAsInt());
+        assertEquals("dirt", args.get("item").getAsString());
+    }
 }

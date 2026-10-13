@@ -179,22 +179,28 @@ public final class StorageGameTests {
 
     @GameTest(maxTicks = 400)
     public void cancelDuringDepositClosesChest(GameTestHelper helper) {
-        GameTestKit.Spawned s = arena(helper, "TestStoreCancel", 400);
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        boolean[] stopped = {false};
+        Bot[] watched = {null};
+        // The check runs right after the bot's tick: the chest is open between the tick it opens and the next one,
+        // and a separate onEachTick could run on either side of the bot's tick (that made this test fail at random).
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestStoreCancel", 2.5, 3.5, () -> {
+            Bot b = watched[0];
+            if (b != null && !stopped[0] && b.player.containerMenu != b.player.inventoryMenu) {
+                b.executor.stop(b.context);
+                stopped[0] = true;
+            }
+        });
+        helper.runAfterDelay(395, () -> GameTestKit.remove(s));
         BlockPos chest = placeChest(helper, 5, 1, 3);
         Bot bot = s.bot();
+        watched[0] = bot;
         Item[] items = {Items.COBBLESTONE, Items.DIRT, Items.STONE, Items.SAND, Items.GRAVEL, Items.OAK_LOG, Items.BIRCH_LOG,
             Items.SPRUCE_LOG, Items.ANDESITE, Items.GRANITE};
         for (int i = 0; i < items.length; i++) bot.player.getInventory().setItem(i, new ItemStack(items[i], 20));
         run(s, new DepositAction(DepositRule.ALL, null));
-        boolean[] stopped = {false};
-        helper.onEachTick(() -> {
-            if (!stopped[0] && bot.player.containerMenu != bot.player.inventoryMenu) {
-                bot.executor.stop(bot.context);
-                stopped[0] = true;
-            }
-        });
         helper.succeedWhen(() -> {
-            helper.assertTrue(stopped[0], "the chest never opened");
+            helper.assertTrue(stopped[0], "the chest never opened; " + GameTestKit.events(bot));
             helper.assertTrue(bot.player.containerMenu == bot.player.inventoryMenu, "the chest menu is still open");
             helper.assertTrue(bot.player.containerMenu.getCarried().isEmpty(), "something is on the cursor");
             int inBot = 0;
@@ -316,6 +322,31 @@ public final class StorageGameTests {
             List<Component> lines = found.getText(SignTextSlot.FRONT).getMessages(false);
             helper.assertTrue(lines.get(0).getString().equals("Welcome to Ada") && lines.get(1).getString().equals("town"), "lines: " + lines);
             helper.assertTrue(held(s.bot(), Items.OAK_SIGN) == 0, "the sign was not used up");
+            GameTestKit.remove(s);
+        });
+    }
+
+    /** The withdraw menu option goes to the chest the bot remembers, not to whichever chest is nearest. */
+    @GameTest(maxTicks = 400)
+    public void withdrawOptionUsesTheRememberedChest(GameTestHelper helper) {
+        GameTestKit.Spawned s = arena(helper, "TestStoreWhich", 400);
+        BlockPos near = placeChest(helper, 3, 1, 5);
+        BlockPos far = placeChest(helper, 6, 1, 3);
+        helper.getBlockEntity(near, ChestBlockEntity.class).setItem(0, new ItemStack(Items.COBBLESTONE, 64));
+        helper.getBlockEntity(far, ChestBlockEntity.class).setItem(0, new ItemStack(Items.COBBLESTONE, 64));
+        Bot bot = s.bot();
+        BlockPos abs = helper.absolutePos(far);
+        bot.attachments.get(ChestMemory.class, ChestMemory::new).seen(new Pos(abs.getX(), abs.getY(), abs.getZ()), Map.of("cobblestone", 64), 0);
+        var snap = Perceiver.capture(bot.player, "none", "none", p -> false, bot.knownBlocks, bot.attachments);
+        var storage = ToolModules.ALL.stream().filter(m -> m.name().equals("storage")).findFirst().orElseThrow();
+        var option = storage.menuOptions(snap, com.aiciv.modules.Samples.context(Map.of())).stream()
+                .filter(o -> o.id().equals("withdraw_cobblestone")).findFirst().orElseThrow();
+        var created = com.aiciv.actions.ActionFactory.create(option.calls().get(0));
+        run(s, ((com.aiciv.actions.ActionFactory.Result.Ok) created).action());
+        helper.succeedWhen(() -> {
+            helper.assertTrue(GameTestKit.events(bot).contains("finished: took 16 cobblestone"), "withdraw did not finish: " + GameTestKit.events(bot));
+            helper.assertTrue(count(helper.getBlockEntity(far, ChestBlockEntity.class), Items.COBBLESTONE) == 48, "the remembered chest was not used");
+            helper.assertTrue(count(helper.getBlockEntity(near, ChestBlockEntity.class), Items.COBBLESTONE) == 64, "the nearer chest was emptied");
             GameTestKit.remove(s);
         });
     }

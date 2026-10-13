@@ -47,4 +47,25 @@ class ChestMemoryTest {
         assertTrue(memory.contents(new Pos(1, 2, 3)).isEmpty());
         assertTrue(memory.describe(new Pos(0, 0, 0), 4).isEmpty());
     }
+
+    @Test
+    void nearestIsTheChestNearestKindsDescribes() {
+        ChestMemory memory = new ChestMemory();
+        memory.seen(new Pos(9, 64, 0), Map.of("dirt", 1), 1);
+        memory.seen(new Pos(-3, 64, 0), Map.of("sand", 1), 2);
+        assertEquals(new Pos(-3, 64, 0), memory.nearest(new Pos(0, 64, 0)).orElseThrow());
+        assertEquals(List.of("sand"), memory.nearestKinds(new Pos(0, 64, 0)));
+        assertTrue(new ChestMemory().nearest(new Pos(0, 64, 0)).isEmpty());
+    }
+
+    @Test
+    void changingDimensionForgetsEveryChest() {
+        ChestMemory memory = new ChestMemory();
+        memory.enterDimension("minecraft:overworld");
+        memory.seen(new Pos(1, 64, 0), Map.of("dirt", 1), 1);
+        memory.enterDimension("minecraft:overworld");
+        assertEquals(1, memory.positions().size());
+        memory.enterDimension("minecraft:the_nether");
+        assertTrue(memory.positions().isEmpty());
+    }
 }

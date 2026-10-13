@@ -28,6 +28,8 @@ import net.minecraft.server.level.ServerLevel;
 /** Chests, giving and dropping items, renaming at an anvil, name tags and signs. */
 public final class StorageModule implements ToolModule {
     static final String CHEST_ITEM = "chest_item:";
+    /** {@code chest_at:<x>:<y>:<z>}: the remembered chest the {@code chest_item:} tags describe. */
+    static final String CHEST_AT = "chest_at:";
     private static final int MAX_NAME = 50;
 
     @Override
@@ -173,16 +175,34 @@ public final class StorageModule implements ToolModule {
         } else if (ctx.inventory().getOrDefault("chest", 0) > 0) {
             out.add(option("place_chest", "place your chest on the ground next to you", call("place_chest")));
         }
+        int[] chestAt = null;
+        for (SnapshotSection section : snap.sections()) {
+            for (String tag : section.tags()) if (tag.startsWith(CHEST_AT)) chestAt = coords(tag.substring(CHEST_AT.length()));
+        }
         int offered = 0;
         for (SnapshotSection section : snap.sections()) {
             for (String tag : section.tags()) {
                 if (!tag.startsWith(CHEST_ITEM) || offered >= 3) continue;
                 String id = tag.substring(CHEST_ITEM.length());
-                out.add(option("withdraw_" + id, "take 16 " + id + " out of the chest you remember", call("withdraw", "item", id, "count", 16)));
+                // The remembered chest itself, not whichever chest happens to be nearest when the bot gets going.
+                ToolCall call = chestAt == null ? call("withdraw", "item", id, "count", 16)
+                        : call("withdraw", "item", id, "count", 16, "x", chestAt[0], "y", chestAt[1], "z", chestAt[2]);
+                out.add(option("withdraw_" + id, "take 16 " + id + " out of the chest you remember", call));
                 offered++;
             }
         }
         return out;
+    }
+
+    /** "x:y:z" as three numbers; null when it is not that. */
+    private static int[] coords(String s) {
+        String[] parts = s.split(":");
+        if (parts.length != 3) return null;
+        try {
+            return new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), Integer.parseInt(parts[2])};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean nearChest(Sighting s) {
@@ -206,7 +226,7 @@ public final class StorageModule implements ToolModule {
     @Override
     public SnapshotData sampleSnapshot() {
         return Samples.snapshot(List.of(new Sighting("chest", 1, 5, "E")),
-                List.of(new SnapshotSection("Chests", List.of("chest at 5 64 0 (5m E): cobblestone x40"), null, List.of(CHEST_ITEM + "cobblestone"))));
+                List.of(new SnapshotSection("Chests", List.of("chest at 5 64 0 (5m E): cobblestone x40"), null, List.of(CHEST_ITEM + "cobblestone", CHEST_AT + "5:64:0"))));
     }
 
     @Override
@@ -223,6 +243,7 @@ public final class StorageModule implements ToolModule {
         ChestMemory chests = memory.find(ChestMemory.class).orElse(null);
         if (chests == null) return List.of();
         ServerLevel level = bot.level();
+        chests.enterDimension(level.dimension().identifier().toString());
         for (Pos p : chests.positions()) { // a chest that has been broken is no longer worth remembering
             BlockPos at = new BlockPos(p.x(), p.y(), p.z());
             if (level.isLoaded(at) && !ContainerTarget.isContainer(BuiltInRegistries.BLOCK.getKey(level.getBlockState(at).getBlock()).getPath())) {
@@ -235,6 +256,7 @@ public final class StorageModule implements ToolModule {
         if (lines.isEmpty()) return List.of();
         List<String> tags = new ArrayList<>();
         for (String id : chests.nearestKinds(here)) tags.add(CHEST_ITEM + id);
+        chests.nearest(here).ifPresent(p -> tags.add(CHEST_AT + p.x() + ":" + p.y() + ":" + p.z()));
         return List.of(new SnapshotSection("Chests", lines, null, tags));
     }
 }

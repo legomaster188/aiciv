@@ -102,8 +102,9 @@ final class ContainerTarget {
     /** Writes what the bot just saw inside into its chest memory. */
     void remember(BotContext ctx) {
         if (ctx.attachments() == null || menu == null) return;
-        ctx.attachments().get(ChestMemory.class, ChestMemory::new)
-                .seen(new Pos(pos.getX(), pos.getY(), pos.getZ()), contents(), ctx.player().level().getGameTime());
+        ChestMemory chests = ctx.attachments().get(ChestMemory.class, ChestMemory::new);
+        chests.enterDimension(ctx.player().level().dimension().identifier().toString());
+        chests.seen(new Pos(pos.getX(), pos.getY(), pos.getZ()), contents(), ctx.player().level().getGameTime());
     }
 
     /** Stops walking and closes the menu, handing back anything on the cursor. Safe to call at any time. */
