@@ -15,6 +15,8 @@ import com.aiciv.llm.LlmService;
 import com.aiciv.llm.MenuReply;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.craft.CraftPlanner;
+import com.aiciv.gear.Armor;
+import com.aiciv.gear.GearPlan;
 import com.aiciv.craft.RecipeBook;
 import com.aiciv.craft.RecipeOption;
 import com.aiciv.perception.Perceiver;
@@ -174,6 +176,11 @@ final class BrainScheduler {
     static final List<String> CRAFT_TARGETS = List.of("crafting_table", "wooden_pickaxe", "stone_pickaxe", "furnace",
             "iron_pickaxe", "iron_sword", "iron_chestplate", "bread", "torch");
 
+    /** Shield and ranged gear offered as menu choices when craftable. */
+    static final List<String> GEAR_TARGETS = List.of("shield", "bow", "arrow", "crossbow");
+    /** Armor pieces offered per menu, so they do not crowd out everything else. */
+    static final int ARMOR_CRAFT_CAP = 6;
+
     /** The progression items the bot could craft right now (a table within 4 blocks, or one it holds or can make). */
     private static List<String> craftableTargets(Bot b, Map<String, Integer> inventory) {
         List<RecipeOption> recipes = RecipeBook.load(b.player.level()); // cached until the recipes reload
@@ -182,6 +189,17 @@ final class BrainScheduler {
         for (String target : CRAFT_TARGETS) {
             if (CraftPlanner.canMake(target, 1, inventory, recipes, tableNearby)) out.add(target);
         }
+        for (String target : GEAR_TARGETS) {
+            if (CraftPlanner.canMake(target, 1, inventory, recipes, tableNearby)) out.add(target);
+        }
+        List<String> armor = new ArrayList<>();
+        for (String material : GearPlan.AUTO) {
+            for (GearPlan.Slot slot : GearPlan.Slot.values()) {
+                String piece = GearPlan.pieceId(material, slot);
+                if (CraftPlanner.canMake(piece, 1, inventory, recipes, tableNearby)) armor.add(piece);
+            }
+        }
+        out.addAll(GearPlan.armorCraftTargets(Armor.worn(b.player), armor, GearPlan::tableScore, ARMOR_CRAFT_CAP));
         return out;
     }
 

@@ -9,6 +9,7 @@ import com.aiciv.brain.OptionMenu;
 import com.aiciv.building.BuildingModule;
 import com.aiciv.combat.CombatModule;
 import com.aiciv.farm.FarmModule;
+import com.aiciv.gear.GearModule;
 import com.aiciv.perception.SnapshotData;
 import com.aiciv.perception.SnapshotSection;
 import com.aiciv.storage.StorageModule;
@@ -31,7 +32,7 @@ import net.minecraft.server.MinecraftServer;
 public final class ToolModules {
     /** Never edited by the feature tasks; they fill their stub instead. */
     public static final List<ToolModule> ALL = List.of(new BuildingModule(), new StorageModule(), new CombatModule(),
-            new TradeModule(), new FarmModule(), new UtilityModule());
+            new TradeModule(), new FarmModule(), new UtilityModule(), new GearModule());
 
     /** Module names that already logged a failure, so a module that throws every tick logs once. */
     private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();

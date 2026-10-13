@@ -134,7 +134,7 @@ public final class CraftAction implements Action {
 
     // ---------------------------------------------------------------- the table
 
-    private static boolean tableNearby(AiPlayer player) {
+    public static boolean tableNearby(AiPlayer player) {
         return nearestTable(player) != null;
     }
 

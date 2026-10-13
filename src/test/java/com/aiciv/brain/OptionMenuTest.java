@@ -94,6 +94,20 @@ class OptionMenuTest {
     }
 
     @Test
+    void shieldAndBetterWeaponsAreOffered() {
+        Map<String, Integer> inv = Map.of("shield", 1, "stone_sword", 1, "iron_sword", 1, "wooden_axe", 1);
+        Set<String> ids = ids(OptionMenu.build(snap("none"), ctx(inv, List.of(), false, List.of(), List.of(), List.of())));
+        assertTrue(ids.contains("equip_shield"), ids.toString());
+        assertTrue(ids.contains("equip_iron_sword"), ids.toString());
+        assertFalse(ids.contains("equip_stone_sword") || ids.contains("equip_wooden_axe"), ids.toString());
+        // a shield already worn and a weapon already as good in hand are not offered again
+        SnapshotData holdingIron = new SnapshotData("Ada", 0, 64, 0, 20, 20, 20, 1, "morning", "plains", "iron_sword", "shield",
+                List.of(), List.of(), List.of(), List.of(), List.of(), "none", "nothing yet");
+        Set<String> again = ids(OptionMenu.build(holdingIron, ctx(inv, List.of(), false, List.of(), List.of(), List.of())));
+        assertFalse(again.contains("equip_shield") || again.contains("equip_iron_sword"), again.toString());
+    }
+
+    @Test
     void idsAreUniqueValidAndCappedAtForty() {
         List<String> mobs = new ArrayList<>(), players = new ArrayList<>(), mineable = new ArrayList<>(), craftable = new ArrayList<>();
         for (int i = 0; i < 30; i++) {

@@ -91,8 +91,8 @@ class ToolModulesTest {
     }
 
     @Test
-    void theRegistryHoldsTheSixFeatureModules() {
-        assertEquals(List.of("building", "storage", "combat", "trade", "farm", "utility"),
+    void theRegistryHoldsTheFeatureModules() {
+        assertEquals(List.of("building", "storage", "combat", "trade", "farm", "utility", "gear"),
                 ToolModules.ALL.stream().map(ToolModule::name).toList());
     }
 }

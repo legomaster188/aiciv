@@ -1,5 +1,6 @@
 package com.aiciv.brain;
 
+import com.aiciv.gear.GearPlan;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.ToolModules;
@@ -64,6 +65,11 @@ public final class OptionMenu {
                 add(options, "equip_" + item, "put on your " + item, call("equip", "item", item));
             }
         }
+        if (ctx.inventory().containsKey("shield") && !snap.equipment().contains("shield")) {
+            add(options, "equip_shield", "hold your shield in the off hand", call("equip", "item", "shield"));
+        }
+        String weapon = betterWeapon(ctx.inventory().keySet(), snap.holding());
+        if (weapon != null) add(options, "equip_" + weapon, "hold your " + weapon + ", it hits harder than what you hold", call("equip", "item", weapon));
         for (String item : ctx.craftableTargets()) {
             add(options, "craft_" + item, "craft a " + item + " from what you carry", call("craft", "item", item, "count", 1));
         }
@@ -101,6 +107,20 @@ public final class OptionMenu {
         if (label.equals("stone") || label.equals("cobblestone")) return 8;
         if (label.endsWith("_ore")) return 3;
         return 0;
+    }
+
+    /** The best sword or axe carried when it outranks what is held, else null. */
+    private static String betterWeapon(Iterable<String> carried, String holding) {
+        String best = null;
+        int bestRank = GearPlan.weaponRank(holding);
+        for (String id : carried) {
+            int rank = GearPlan.weaponRank(id);
+            if (rank > bestRank) {
+                best = id;
+                bestRank = rank;
+            }
+        }
+        return best;
     }
 
     private static boolean isArmor(String item) {
