@@ -40,6 +40,11 @@ public final class TradeModule implements ToolModule {
         trade.add("want", Tools.prop("string", "the item you want to get, e.g. bread (use this or offer)"));
         trade.add("offer", Tools.prop("integer", "the offer number from trade_list (use this or want); also sells, e.g. wheat for emeralds"));
         trade.add("times", Tools.prop("integer", "how many times to make the trade, 1 to 12 (default 1)"));
+        trade.add("x", Tools.prop("integer", "optional block x where you saw the villager; give x, y and z together or none"));
+        trade.add("y", Tools.prop("integer", "block y"));
+        trade.add("z", Tools.prop("integer", "block z"));
+        trade.add("expect", Tools.prop("string", "optional item the offer must give; the trade fails if that offer changed"));
+        trade.add("pay", Tools.prop("string", "optional item the offer must cost; the trade fails if that offer changed"));
         return List.of(
                 Tools.fn("trade_list", "Walk up to a villager and read its offers (they are remembered). Prices change with demand.", list),
                 Tools.fn("trade", "Trade with a villager at its real prices, for a wanted item or an offer number.", trade));
@@ -73,7 +78,10 @@ public final class TradeModule implements ToolModule {
             if (offer == null || offer < 0) return invalid("trade \"offer\" must be a whole number from trade_list, starting at 0");
         }
         int times = Args.intIn(a, "times", 1, 1, 12);
-        return new ActionFactory.Result.Ok(new TradeAction(Args.str(a, "villager"), hasWant ? want.trim() : null, offer, times));
+        String problem = Args.posProblem("trade", a);
+        if (problem != null) return invalid(problem);
+        return new ActionFactory.Result.Ok(new TradeAction(Args.str(a, "villager"), hasWant ? want.trim() : null, offer, times,
+                Args.optionalPos(a).orElse(null), Args.str(a, "expect"), Args.str(a, "pay")));
     }
 
     private static ActionFactory.Result invalid(String reason) {
@@ -87,6 +95,7 @@ public final class TradeModule implements ToolModule {
         BlockPos feet = bot.blockPosition();
         Pos from = new Pos(feet.getX(), feet.getY(), feet.getZ());
         VillagerMemory remembered = memory.find(VillagerMemory.class).orElse(null);
+        if (remembered != null) remembered.enterDimension(bot.level().dimension().identifier().toString());
         List<Villager> seen = bot.level().getEntitiesOfClass(Villager.class, bot.getBoundingBox().inflate(Villagers.RADIUS),
                         v -> v.isAlive() && !v.isBaby() && Villagers.trades(Villagers.profession(v))
                                 && v.distanceTo(bot) <= Villagers.RADIUS && bot.hasLineOfSight(v))
@@ -122,7 +131,7 @@ public final class TradeModule implements ToolModule {
                 String[] parts = tag.split(":");
                 if (parts.length == 2 && parts[0].equals("villager")) {
                     professions.add(parts[1]);
-                } else if (parts.length == 6 && parts[0].equals("offer")) {
+                } else if ((parts.length == 6 || parts.length == 9) && parts[0].equals("offer")) {
                     withOffers.add(parts[1]);
                     offers.add(parts);
                 }
@@ -137,14 +146,21 @@ public final class TradeModule implements ToolModule {
                     List.of(call("trade_list", "villager", profession))));
         }
         int trades = 0;
-        for (String[] o : offers) {
+        Set<String> ids = new LinkedHashSet<>();
+        for (String[] o : offers) { // nearest villager first, so a repeated id keeps the nearest one
             if (trades >= MENU_TRADES) break;
             int countA = number(o[5]);
             int index = number(o[2]);
-            if (countA <= 0 || index < 0 || ctx.inventory().getOrDefault(o[4], 0) < countA) continue;
+            String id = "trade_" + o[1] + "_" + o[2];
+            if (countA <= 0 || index < 0 || ctx.inventory().getOrDefault(o[4], 0) < countA || !ids.add(id)) continue;
             trades++;
-            ToolCall call = call("trade", "villager", o[1], "offer", index, "times", 1);
-            out.add(new MenuOption("trade_" + o[1] + "_" + o[2], "trade " + countA + " " + o[4] + " for " + o[3], List.of(call)));
+            // The villager's position and the offer as remembered: the trade goes to that villager, and only while
+            // its offer is still this one (another villager's offer with the same number may be something else).
+            ToolCall call = o.length == 9
+                    ? call("trade", "villager", o[1], "offer", index, "times", 1, "x", number(o[6]), "y", number(o[7]), "z", number(o[8]),
+                            "expect", o[3], "pay", o[4])
+                    : call("trade", "villager", o[1], "offer", index, "times", 1, "expect", o[3], "pay", o[4]);
+            out.add(new MenuOption(id, "trade " + countA + " " + o[4] + " for " + o[3], List.of(call)));
         }
         return out;
     }
@@ -169,7 +185,7 @@ public final class TradeModule implements ToolModule {
     @Override
     public SnapshotData sampleSnapshot() {
         return Samples.snapshot(List.of(), List.of(new SnapshotSection("Villagers", List.of("farmer 6m N"), null,
-                List.of("villager:farmer", "villager:librarian", "offer:farmer:1:bread:emerald:1"))));
+                List.of("villager:farmer", "villager:librarian", "offer:farmer:1:bread:emerald:1:3:64:-5"))));
     }
 
     @Override

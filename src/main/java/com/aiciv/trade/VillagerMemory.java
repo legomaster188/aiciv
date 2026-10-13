@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /** The villagers a bot has met and what they offered (prices as last seen). A per-bot attachment; server thread. */
@@ -18,6 +19,13 @@ public final class VillagerMemory {
 
     /** Insertion order is least recently seen first; seeing a villager again moves it to the end. */
     private final Map<UUID, Entry> villagers = new LinkedHashMap<>();
+    private String dimension;
+
+    /** Positions only mean something in one dimension: forget every villager when the bot changes dimension. */
+    public void enterDimension(String key) {
+        if (dimension != null && !dimension.equals(key)) villagers.clear();
+        dimension = key;
+    }
 
     public void seen(UUID id, String profession, Pos pos, List<OfferView> offers, long tick) {
         villagers.remove(id);
@@ -31,6 +39,12 @@ public final class VillagerMemory {
 
     public boolean knows(UUID id) {
         return villagers.containsKey(id);
+    }
+
+    /** The villager remembered at exactly {@code pos} (where its offers were read), if any. */
+    public Optional<UUID> idAt(Pos pos) {
+        for (Map.Entry<UUID, Entry> e : villagers.entrySet()) if (e.getValue().pos.equals(pos)) return Optional.of(e.getKey());
+        return Optional.empty();
     }
 
     /** "farmer 6m N: 0: 20 wheat -> 1 emerald; 1: ..." (first three offers), nearest first; no colon without offers. */
@@ -47,13 +61,17 @@ public final class VillagerMemory {
         return out;
     }
 
-    /** {@code villager:<profession>} per villager, then {@code offer:<profession>:<index>:<result>:<costA>:<countA>} per offer. */
+    /**
+     * {@code villager:<profession>} per villager, then {@code offer:<profession>:<index>:<result>:<costA>:<countA>:<x>:<y>:<z>}
+     * per offer, the position being where that villager was seen (so a trade goes to this villager, not the nearest).
+     */
     public List<String> tags(Pos from) {
         List<String> out = new ArrayList<>();
         for (Entry e : nearestFirst(from)) {
             out.add("villager:" + e.profession);
             for (OfferView o : e.offers) {
-                out.add("offer:" + e.profession + ":" + o.index() + ":" + o.result() + ":" + o.costA() + ":" + o.countA());
+                out.add("offer:" + e.profession + ":" + o.index() + ":" + o.result() + ":" + o.costA() + ":" + o.countA()
+                        + ":" + e.pos.x() + ":" + e.pos.y() + ":" + e.pos.z());
             }
         }
         return out.stream().distinct().toList();

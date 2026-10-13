@@ -105,4 +105,23 @@ class TradeModuleTest {
         assertEquals(3, ids.stream().filter(i -> i.startsWith("trade_list_")).count());
         assertEquals(3, ids.stream().filter(i -> i.startsWith("trade_x_")).count());
     }
+
+    @Test
+    void tradeOptionTargetsTheRememberedVillagerAndItsOffer() {
+        SnapshotData snap = withTags("villager:farmer", "offer:farmer:1:bread:emerald:1:12:64:-30", "offer:farmer:1:cookie:emerald:1:3:64:2");
+        List<MenuOption> opts = options(snap, Map.of("emerald", 3));
+        assertEquals(1, opts.stream().filter(o -> o.id().equals("trade_farmer_1")).count(), "one option per id, the nearest villager's");
+        JsonObject args = opts.stream().filter(o -> o.id().equals("trade_farmer_1")).findFirst().orElseThrow().calls().get(0).args();
+        assertEquals(12, args.get("x").getAsInt());
+        assertEquals(64, args.get("y").getAsInt());
+        assertEquals(-30, args.get("z").getAsInt());
+        assertEquals("bread", args.get("expect").getAsString());
+        assertEquals("emerald", args.get("pay").getAsString());
+        assertInstanceOf(ActionFactory.Result.Ok.class, ActionFactory.create(ToolCall.of("trade", args)));
+    }
+
+    @Test
+    void tradeRefusesPartCoordinates() {
+        assertTrue(invalid(call("trade", "offer", "1", "x", "4")).contains("x, y and z"));
+    }
 }

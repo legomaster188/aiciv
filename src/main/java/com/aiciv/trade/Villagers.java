@@ -38,14 +38,17 @@ public final class Villagers {
 
     /** The nearest adult villager with a trade, of the given profession when one is named, within {@code radius}. */
     public static Optional<Villager> find(AiPlayer p, String professionOrNull, double radius) {
+        return Finder.nearestEntity(p, Villager.class, v -> matches(v, professionOrNull), radius);
+    }
+
+    /** An adult villager with a trade, of the given profession when one is named. */
+    static boolean matches(Villager v, String professionOrNull) {
         String want = clean(professionOrNull);
         String singular = want != null && want.endsWith("s") ? want.substring(0, want.length() - 1) : want;
-        return Finder.nearestEntity(p, Villager.class, v -> {
-            if (v.isBaby()) return false;
-            String prof = profession(v);
-            if (!trades(prof)) return false;
-            return want == null || prof.equals(want) || prof.equals(singular);
-        }, radius);
+        if (v.isBaby()) return false;
+        String prof = profession(v);
+        if (!trades(prof)) return false;
+        return want == null || prof.equals(want) || prof.equals(singular);
     }
 
     /** Right-clicks the villager; its trading menu if that opened, else null (and whatever opened is closed). */

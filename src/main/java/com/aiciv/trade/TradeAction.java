@@ -6,6 +6,8 @@ import com.aiciv.bot.AiPlayer;
 import com.aiciv.world.InventoryOps;
 import com.aiciv.world.ItemNames;
 import java.util.List;
+import java.util.Locale;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
@@ -28,12 +30,33 @@ public final class TradeAction extends VillagerAction {
     private int paidA, paidB, received;
     private String costAId = "", costBId = "", resultId = "";
     private String summary;
+    private final String expect;
+    private final String pay;
 
     public TradeAction(String villagerOrNull, String wantOrNull, Integer offerOrNull, int times) {
-        super(villagerOrNull);
+        this(villagerOrNull, wantOrNull, offerOrNull, times, null, null, null);
+    }
+
+    /**
+     * @param seenAtOrNull where the villager was seen; the trade is then made with that villager or not at all
+     * @param expectOrNull the item the chosen offer must give, @param payOrNull the item it must cost (first cost):
+     *     an offer number means nothing on another villager, or after the villager's trades changed
+     */
+    public TradeAction(String villagerOrNull, String wantOrNull, Integer offerOrNull, int times, BlockPos seenAtOrNull,
+            String expectOrNull, String payOrNull) {
+        super(villagerOrNull, seenAtOrNull);
         this.want = wantOrNull;
         this.offer = offerOrNull;
         this.times = times;
+        this.expect = blankToNull(expectOrNull);
+        this.pay = blankToNull(payOrNull);
+    }
+
+    /** An item id as offers show it (no namespace, lower case); null for nothing given. */
+    private static String blankToNull(String s) {
+        if (s == null || s.isBlank()) return null;
+        String id = s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", "_");
+        return id.startsWith("minecraft:") ? id.substring("minecraft:".length()) : id;
     }
 
     @Override
@@ -89,6 +112,11 @@ public final class TradeAction extends VillagerAction {
             if (offer >= views.size()) {
                 ctx.event(where() + " offers: " + joined(views, views.size()));
                 return finish(p, "the " + profession + " has no offer " + offer + "; offers: " + joined(views, 4));
+            }
+            OfferView chosen = views.get(offer);
+            if ((expect != null && !expect.equals(chosen.result())) || (pay != null && !pay.equals(chosen.costA()))) {
+                ctx.event(where() + " offers: " + joined(views, views.size()));
+                return finish(p, "that villager's offer changed: offer " + offer + " is now " + chosen.text());
             }
             index = offer;
         } else {

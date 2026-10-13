@@ -56,7 +56,28 @@ class VillagerMemoryTest {
     void tagsNameTheProfessionAndEveryOffer() {
         VillagerMemory m = new VillagerMemory();
         m.seen(UUID.randomUUID(), "farmer", new Pos(0, 64, -6), OFFERS.subList(0, 2), 1);
-        assertEquals(List.of("villager:farmer", "offer:farmer:0:emerald:wheat:20", "offer:farmer:1:bread:emerald:1"),
+        assertEquals(List.of("villager:farmer", "offer:farmer:0:emerald:wheat:20:0:64:-6", "offer:farmer:1:bread:emerald:1:0:64:-6"),
                 m.tags(new Pos(0, 64, 0)));
+    }
+
+    @Test
+    void idAtFindsTheVillagerSeenThere() {
+        VillagerMemory m = new VillagerMemory();
+        UUID near = UUID.randomUUID(), far = UUID.randomUUID();
+        m.seen(near, "farmer", new Pos(2, 64, 0), OFFERS, 1);
+        m.seen(far, "farmer", new Pos(9, 64, 0), OFFERS, 2);
+        assertEquals(far, m.idAt(new Pos(9, 64, 0)).orElseThrow());
+        assertTrue(m.idAt(new Pos(5, 64, 0)).isEmpty());
+    }
+
+    @Test
+    void changingDimensionForgetsEveryVillager() {
+        VillagerMemory m = new VillagerMemory();
+        m.enterDimension("minecraft:overworld");
+        m.seen(UUID.randomUUID(), "farmer", new Pos(2, 64, 0), OFFERS, 1);
+        m.enterDimension("minecraft:overworld");
+        assertEquals(1, m.size());
+        m.enterDimension("minecraft:the_nether");
+        assertEquals(0, m.size());
     }
 }

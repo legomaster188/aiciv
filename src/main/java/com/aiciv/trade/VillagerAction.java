@@ -7,13 +7,17 @@ import com.aiciv.actions.Attachments;
 import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.nav.Pos;
+import com.aiciv.world.Finder;
 import com.aiciv.world.MenuOps;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Finds a villager, walks up to it and opens its trading menu; the subclass then works with the open menu. The menu is
@@ -21,9 +25,12 @@ import net.minecraft.world.item.trading.MerchantOffer;
  */
 abstract class VillagerAction implements Action {
     static final double STAND_RADIUS = 3.0;
+    /** How far a remembered villager may have wandered from where it was seen and still count as found. */
+    static final double WANDER = 3.0;
     private static final int MAX_OPEN_TRIES = 3;
 
     private final String wanted;
+    private final BlockPos seenAt;
     private Approach approach;
     private int opens;
     protected Villager villager;
@@ -31,7 +38,13 @@ abstract class VillagerAction implements Action {
     protected MerchantMenu menu;
 
     VillagerAction(String wanted) {
+        this(wanted, null);
+    }
+
+    /** @param seenAtOrNull where the villager to use was seen; null means the nearest one of {@code wanted} */
+    VillagerAction(String wanted, BlockPos seenAtOrNull) {
         this.wanted = Villagers.clean(wanted);
+        this.seenAt = seenAtOrNull;
     }
 
     @Override
@@ -39,7 +52,15 @@ abstract class VillagerAction implements Action {
         AiPlayer p = ctx.player();
         if (menu != null) return withMenu(ctx, p);
         if (villager == null) {
-            villager = Villagers.find(p, wanted, Villagers.RADIUS).orElse(null);
+            if (seenAt != null) {
+                villager = remembered(ctx, p);
+                if (villager == null) {
+                    return ActionStatus.failed("no " + (wanted == null ? "villager" : wanted) + " at " + seenAt.getX() + " " + seenAt.getY() + " " + seenAt.getZ()
+                            + " any more");
+                }
+            } else {
+                villager = Villagers.find(p, wanted, Villagers.RADIUS).orElse(null);
+            }
             if (villager == null) return ActionStatus.failed(wanted == null ? "no villager nearby" : "no " + wanted + " nearby");
             profession = Villagers.profession(villager);
             approach = Approach.entity(villager, STAND_RADIUS);
@@ -60,6 +81,24 @@ abstract class VillagerAction implements Action {
         return withMenu(ctx, p);
     }
 
+    /**
+     * The villager seen at {@link #seenAt}: the one remembered there if it is still alive within range, else one of the
+     * wanted profession within {@value #WANDER} blocks of that spot. Never some other villager further off.
+     */
+    private Villager remembered(BotContext ctx, AiPlayer p) {
+        VillagerMemory memory = ctx.attachments() == null ? null : ctx.attachments().find(VillagerMemory.class).orElse(null);
+        if (memory != null) {
+            memory.enterDimension(p.level().dimension().identifier().toString());
+            Optional<UUID> id = memory.idAt(new Pos(seenAt.getX(), seenAt.getY(), seenAt.getZ()));
+            if (id.isPresent()) {
+                return p.level().getEntity(id.get()) instanceof Villager v && v.isAlive() && v.distanceTo(p) <= Villagers.RADIUS ? v : null;
+            }
+        }
+        Vec3 spot = Vec3.atBottomCenterOf(seenAt);
+        return Finder.nearestEntity(p, Villager.class, v -> v.position().distanceTo(spot) <= WANDER && Villagers.matches(v, wanted), Villagers.RADIUS)
+                .orElse(null);
+    }
+
     /** Ticked while this action has the trading menu open; must close it (via {@link #closeMenu}) when it stops. */
     abstract ActionStatus withMenu(BotContext ctx, AiPlayer p);
 
@@ -77,8 +116,9 @@ abstract class VillagerAction implements Action {
         Attachments memory = ctx.attachments();
         if (memory != null) {
             BlockPos at = villager.blockPosition();
-            memory.get(VillagerMemory.class, VillagerMemory::new)
-                    .seen(villager.getUUID(), profession, new Pos(at.getX(), at.getY(), at.getZ()), views, villager.level().getGameTime());
+            VillagerMemory villagers = memory.get(VillagerMemory.class, VillagerMemory::new);
+            villagers.enterDimension(villager.level().dimension().identifier().toString());
+            villagers.seen(villager.getUUID(), profession, new Pos(at.getX(), at.getY(), at.getZ()), views, villager.level().getGameTime());
         }
         return views;
     }

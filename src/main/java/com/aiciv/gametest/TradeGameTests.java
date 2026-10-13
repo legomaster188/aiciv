@@ -174,4 +174,72 @@ public final class TradeGameTests {
             GameTestKit.remove(s);
         });
     }
+
+    /** A farmer whose offer 1 sells {@code result} for an emerald (offer 0 is the usual bread). */
+    private static Villager farmerSelling(GameTestHelper helper, double x, double z, net.minecraft.world.item.Item result) {
+        Villager v = farmer(helper, x, z, false);
+        MerchantOffers offers = new MerchantOffers();
+        offers.add(new MerchantOffer(new ItemCost(Items.EMERALD, 1), Optional.empty(), new ItemStack(Items.BREAD, 6), 0, 12, 1, 0.05f, 0));
+        offers.add(new MerchantOffer(new ItemCost(Items.EMERALD, 1), Optional.empty(), new ItemStack(result, 4), 0, 12, 1, 0.05f, 0));
+        v.setOffers(offers);
+        return v;
+    }
+
+    /** What the bot would remember after a trade_list with {@code v}. */
+    private static void remember(GameTestKit.Spawned s, Villager v) {
+        List<com.aiciv.trade.OfferView> views = new java.util.ArrayList<>();
+        for (int i = 0; i < v.getOffers().size(); i++) views.add(com.aiciv.trade.OfferView.of(i, v.getOffers().get(i)));
+        var at = v.blockPosition();
+        s.bot().attachments.get(VillagerMemory.class, VillagerMemory::new)
+                .seen(v.getUUID(), "farmer", new com.aiciv.nav.Pos(at.getX(), at.getY(), at.getZ()), views, v.level().getGameTime());
+    }
+
+    private static String tradeCall(Villager v, String expect) {
+        var at = v.blockPosition();
+        return "{\"villager\":\"farmer\",\"offer\":1,\"times\":1,\"x\":" + at.getX() + ",\"y\":" + at.getY() + ",\"z\":" + at.getZ()
+                + ",\"expect\":\"" + expect + "\",\"pay\":\"emerald\"}";
+    }
+
+    /** An offer number means nothing on another villager: the trade goes to the remembered farmer, not the nearest. */
+    @GameTest(maxTicks = 500, padding = 24)
+    public void tradeByOfferUsesTheRememberedVillager(GameTestHelper helper) {
+        farmerSelling(helper, 3.5, 3.5, Items.COOKIE); // nearer, and its offer 1 is something else
+        Villager far = farmerSelling(helper, 6.5, 3.5, Items.PUMPKIN_PIE);
+        GameTestKit.Spawned s = arena(helper, "TestTradeWho");
+        s.bot().player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 1));
+        remember(s, far);
+        s.bot().executor.replace(List.of(action("trade", tradeCall(far, "pumpkin_pie"))), s.bot().context);
+        helper.runAfterDelay(495, () -> GameTestKit.remove(s));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(ended(s), "trade has not ended: " + GameTestKit.events(s.bot()));
+            helper.assertTrue(count(s, Items.COOKIE) == 0, "bought from the wrong villager: " + GameTestKit.events(s.bot()));
+            helper.assertTrue(count(s, Items.PUMPKIN_PIE) == 4, "pies: " + count(s, Items.PUMPKIN_PIE) + "; " + GameTestKit.events(s.bot()));
+            assertMenuClosed(helper, s);
+            GameTestKit.remove(s);
+        });
+    }
+
+    @GameTest(maxTicks = 500, padding = 24)
+    public void tradeFailsWhenTheOfferChanged(GameTestHelper helper) {
+        Villager v = farmerSelling(helper, 6.5, 3.5, Items.PUMPKIN_PIE);
+        GameTestKit.Spawned s = arena(helper, "TestTradeChange");
+        s.bot().player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 1));
+        remember(s, v);
+        String call = tradeCall(v, "pumpkin_pie");
+        // The villager's trades change after the bot last looked (as they do when it levels up or restocks differently).
+        MerchantOffers changed = new MerchantOffers();
+        changed.add(new MerchantOffer(new ItemCost(Items.EMERALD, 1), Optional.empty(), new ItemStack(Items.BREAD, 6), 0, 12, 1, 0.05f, 0));
+        changed.add(new MerchantOffer(new ItemCost(Items.EMERALD, 1), Optional.empty(), new ItemStack(Items.COOKIE, 4), 0, 12, 1, 0.05f, 0));
+        v.setOffers(changed);
+        s.bot().executor.replace(List.of(action("trade", call)), s.bot().context);
+        helper.runAfterDelay(495, () -> GameTestKit.remove(s));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(ended(s), "trade has not ended: " + GameTestKit.events(s.bot()));
+            String events = GameTestKit.events(s.bot());
+            helper.assertTrue(events.contains("that villager's offer changed"), "no refusal: " + events);
+            helper.assertTrue(count(s, Items.COOKIE) == 0 && count(s, Items.EMERALD) == 1, "it traded anyway: " + events);
+            assertMenuClosed(helper, s);
+            GameTestKit.remove(s);
+        });
+    }
 }
