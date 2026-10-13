@@ -355,4 +355,39 @@ public final class ToolkitGameTests {
         approach(helper, "TestKitSeen", chest, 300, status ->
                 helper.assertTrue(status.state() == Approach.State.ARRIVED, "approach gave " + status));
     }
+    /** The one guard every breaking path shares: someone else's block is refused, the bot's own comes down. */
+    @GameTest(maxTicks = 200)
+    public void breakerRefusesAnotherPlayersBlock(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(3, 1, 3, Blocks.DIRT);
+        helper.setBlock(3, 1, 4, Blocks.DIRT);
+        AiPlayer bot = player(helper, "TestKitOthers", new Vec3(1.5, 1, 3.5), 200);
+        ServerLevel level = helper.getLevel();
+        BlockPos steves = helper.absolutePos(new BlockPos(3, 1, 3));
+        BlockPos mine = helper.absolutePos(new BlockPos(3, 1, 4));
+        PlacedBlocks.of(level.getServer()).record(level, steves, "Steve");
+        PlacedBlocks.of(level.getServer()).record(level, mine, "TestKitOthers");
+        BlockBreaker breaker = new BlockBreaker(bot);
+        BlockBreaker.Status[] last = {null};
+        boolean[] started = {false};
+        helper.runAfterDelay(3, () -> {
+            breaker.start(steves);
+            BlockBreaker.Status refused = breaker.tick();
+            helper.assertTrue(refused.state() == BlockBreaker.Status.State.FAILED && refused.reason().equals(BlockBreaker.PLACED_BY_OTHER),
+                    "breaking Steve's block gave " + refused);
+            helper.assertTrue(!breaker.busy(), "the breaker is still busy after refusing");
+            breaker.start(mine);
+            started[0] = true;
+        });
+        // Registered up front: onEachTick schedules one runnable per tick, which must not happen while they run.
+        helper.onEachTick(() -> {
+            if (started[0] && (last[0] == null || last[0].state() == BlockBreaker.Status.State.RUNNING)) last[0] = breaker.tick();
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(last[0] != null && last[0].state() == BlockBreaker.Status.State.DONE, "own block: " + last[0]);
+            helper.assertBlockPresent(Blocks.DIRT, new BlockPos(3, 1, 3));
+            helper.assertBlockPresent(Blocks.AIR, new BlockPos(3, 1, 4));
+            leave(bot);
+        });
+    }
 }

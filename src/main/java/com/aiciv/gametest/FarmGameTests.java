@@ -7,6 +7,7 @@ import com.aiciv.farm.PlantAction;
 import com.aiciv.farm.TillAction;
 import com.aiciv.modules.ToolModules;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import java.util.List;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
@@ -223,6 +224,30 @@ public final class FarmGameTests {
         s.bot().executor.replace(List.of(new FishAction(1)), s.bot().context);
         helper.succeedWhen(() -> {
             helper.assertTrue(GameTestKit.events(s.bot()).contains("no open water within 8"), "no failure yet: " + GameTestKit.events(s.bot()));
+            GameTestKit.remove(s);
+        });
+    }
+    /** A bot harvests wild crops and its own, never a crop someone else planted. */
+    @GameTest(maxTicks = 1200)
+    public void harvestLeavesOthersCropsAlone(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.DIRT);
+        for (int x : new int[] {2, 4}) {
+            helper.setBlock(x, 0, 2, MOIST_FARMLAND);
+            helper.setBlock(x, 1, 2, Blocks.WHEAT.defaultBlockState().setValue(CropBlock.AGE, CropBlock.MAX_AGE));
+        }
+        var level = helper.getLevel();
+        PlacedBlocks.of(level.getServer()).record(level, helper.absolutePos(new BlockPos(2, 1, 2)), "Steve");
+        PlacedBlocks.of(level.getServer()).record(level, helper.absolutePos(new BlockPos(4, 1, 2)), "TestFarmOwn");
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestFarmOwn", 3.5, 5.5);
+        helper.runAfterDelay(1195, () -> GameTestKit.remove(s));
+        s.bot().executor.replace(List.of(new HarvestAction(2)), s.bot().context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(s.bot());
+            helper.assertTrue(events.contains("finished: harvested 1 wheat"), "harvest did not finish with one wheat: " + events);
+            BlockState steves = helper.getBlockState(new BlockPos(2, 1, 2));
+            helper.assertTrue(steves.is(Blocks.WHEAT) && steves.getValue(CropBlock.AGE) == CropBlock.MAX_AGE, "Steve's wheat was taken: " + steves);
+            BlockState own = helper.getBlockState(new BlockPos(4, 1, 2));
+            helper.assertTrue(own.is(Blocks.WHEAT) && own.getValue(CropBlock.AGE) == 0, "its own wheat was not harvested and replanted: " + own);
             GameTestKit.remove(s);
         });
     }

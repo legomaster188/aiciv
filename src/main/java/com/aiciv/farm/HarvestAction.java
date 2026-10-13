@@ -10,6 +10,7 @@ import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockUse;
 import com.aiciv.world.InventoryOps;
 import com.aiciv.world.ItemNames;
+import com.aiciv.world.PlacedBlocks;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,8 +65,10 @@ public final class HarvestAction implements Action {
     private ActionStatus pick(BotContext ctx) {
         if (total >= count) return finish();
         AiPlayer p = ctx.player();
+        PlacedBlocks placed = PlacedBlocks.of(p.level().getServer());
         for (BlockPos pos : FarmScan.visible(p, HarvestAction::ripe, RADIUS)) {
             if (skipped.contains(pos)) continue;
+            if (placed.isPlacedByOther(p.level(), pos, p.getScoreboardName())) continue; // someone else's farm: wild or own crops only
             crop = pos;
             cropId = BuiltInRegistries.BLOCK.getKey(p.level().getBlockState(pos).getBlock()).getPath();
             approach = Approach.block(pos, STAND_RADIUS);
