@@ -83,8 +83,8 @@ public final class CombatAction implements Action {
         ActionStatus done = switch (move) {
             case AttackOnce a -> attackOnce(ctx, me, a.target());
             case JumpCrit j -> jumpCrit(ctx, me, j.target());
-            case Strafe s -> strafe(me, s);
-            case BackOff b -> backOff(me, b);
+            case Strafe s -> strafe(me, s, first);
+            case BackOff b -> backOff(me, b, first);
             case Shield s -> shield(me, s, first);
             case Bow b -> bow(me, b, first);
             case Hotbar h -> {
@@ -131,6 +131,11 @@ public final class CombatAction implements Action {
             return null;
         }
         face(me, current);
+        if (!inReach(me)) {
+            // It moved away (or behind something) while the bot waited: walk up again instead of hitting thin air.
+            reached = false;
+            return null;
+        }
         me.attack(current);
         me.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
         return ActionStatus.DONE;
@@ -172,7 +177,8 @@ public final class CombatAction implements Action {
         return null;
     }
 
-    private ActionStatus strafe(AiPlayer me, Strafe s) {
+    private ActionStatus strafe(AiPlayer me, Strafe s, boolean first) {
+        if (first && !canSeeCurrent(me)) return cantSee();
         if (moveTick >= s.ticks()) {
             me.stopMoving();
             return ActionStatus.DONE;
@@ -183,7 +189,8 @@ public final class CombatAction implements Action {
         return null;
     }
 
-    private ActionStatus backOff(AiPlayer me, BackOff b) {
+    private ActionStatus backOff(AiPlayer me, BackOff b, boolean first) {
+        if (first && !canSeeCurrent(me)) return cantSee();
         if (moveTick >= b.ticks()) {
             me.stopMoving();
             return ActionStatus.DONE;
@@ -219,11 +226,16 @@ public final class CombatAction implements Action {
             if (InventoryOps.count(me, s -> s.is(Items.BOW)) == 0) return ActionStatus.failed("no bow");
             if (InventoryOps.count(me, s -> s.is(ItemTags.ARROWS)) == 0) return ActionStatus.failed("no arrows");
             if (me.distanceTo(current) > BOW_RANGE) return ActionStatus.failed("bow: " + b.target() + " is out of range");
+            if (!me.hasLineOfSight(current)) return cantSee();
             InventoryOps.selectBest(me, s -> s.is(Items.BOW) ? 1 : 0);
             me.gameMode.useItem(me, me.level(), me.getMainHandItem(), InteractionHand.MAIN_HAND);
             if (!me.isUsingItem()) return ActionStatus.failed("bow: could not draw it");
         }
         if (moveTick >= b.chargeTicks()) {
+            if (!me.hasLineOfSight(current)) { // never loose an arrow at something the bot cannot see
+                me.stopUsingItem();
+                return cantSee();
+            }
             me.releaseUsingItem();
             return ActionStatus.DONE;
         }
@@ -258,6 +270,15 @@ public final class CombatAction implements Action {
             ctx.navigator().goTo(new NearGoal(anchor.x, anchor.y, anchor.z, CLOSE));
         }
         return ActionStatus.RUNNING;
+    }
+
+    /** Strafing and backing off are aimed at the last target; a target out of sight cannot be fought this way. */
+    private boolean canSeeCurrent(AiPlayer me) {
+        return current == null || me.hasLineOfSight(current);
+    }
+
+    private ActionStatus cantSee() {
+        return ActionStatus.failed("can't see " + currentLabel);
     }
 
     private boolean inReach(AiPlayer me) {

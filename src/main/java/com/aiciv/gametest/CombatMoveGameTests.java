@@ -189,4 +189,46 @@ public final class CombatMoveGameTests {
             f.cleanUp();
         });
     }
+    /** Fairness: a target that leaves reach while the bot waits out its cooldown is never hit from afar. */
+    @GameTest(maxTicks = 160)
+    public void attackOnceNeverHitsATargetThatLeftReach(GameTestHelper helper) throws Exception {
+        Fight f = new Fight(helper, "TestMoveLeft", new Vec3(3.5, 1, 5.5), new Vec3(3.5, 1, 3.5), 160);
+        // An obsidian cell in the corner: no sight into it, and nothing the bot can dig in time.
+        for (int y = 1; y <= 2; y++) {
+            helper.setBlock(5, y, 0, Blocks.OBSIDIAN);
+            helper.setBlock(7, y, 0, Blocks.OBSIDIAN);
+            helper.setBlock(6, y, 1, Blocks.OBSIDIAN);
+        }
+        helper.setBlock(6, 3, 0, Blocks.OBSIDIAN);
+        f.bot.player.getInventory().setItem(0, new ItemStack(Items.IRON_SWORD));
+        f.faceZombie();
+        f.bot.player.resetAttackStrengthTicker(); // about 12 ticks of cooldown before a full-strength hit
+        f.run("attack_once zombie");
+        helper.runAfterDelay(2, () -> {
+            Vec3 cell = helper.absoluteVec(new Vec3(6.5, 1, 0.5));
+            f.zombie.teleportTo(cell.x, cell.y, cell.z);
+        });
+        helper.succeedWhen(() -> {
+            String events = events(f.bot);
+            helper.assertTrue(events.contains("out of reach"), "attack_once did not give up: " + events);
+            helper.assertTrue(f.zombie.getHealth() == f.zombie.getMaxHealth(), "the zombie was hit from out of reach; " + events);
+            f.cleanUp();
+        });
+    }
+
+    @GameTest(maxTicks = 100)
+    public void bowNeedsToSeeTheTarget(GameTestHelper helper) throws Exception {
+        Fight f = new Fight(helper, "TestMoveBlind", new Vec3(3.5, 1, 6.5), new Vec3(3.5, 1, 1.5), 100);
+        for (int x = 0; x < 8; x++) for (int y = 1; y <= 3; y++) helper.setBlock(x, y, 4, Blocks.STONE);
+        f.bot.player.getInventory().setItem(0, new ItemStack(Items.BOW));
+        f.bot.player.getInventory().setItem(8, new ItemStack(Items.ARROW, 5));
+        f.run("bow zombie 10");
+        helper.succeedWhen(() -> {
+            String events = events(f.bot);
+            helper.assertTrue(events.contains("can't see zombie"), "no refusal: " + events);
+            int arrows = InventoryOps.count(f.bot.player, s -> s.is(Items.ARROW));
+            helper.assertTrue(arrows == 5, "an arrow was shot: " + arrows + " left");
+            f.cleanUp();
+        });
+    }
 }
