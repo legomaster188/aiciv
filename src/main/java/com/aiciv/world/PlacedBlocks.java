@@ -49,7 +49,7 @@ public final class PlacedBlocks {
             try {
                 store = PlacementStore.fromJson(Files.readString(file, StandardCharsets.UTF_8), CAPACITY);
             } catch (IOException | RuntimeException e) {
-                AiCiv.LOG.warn("AiCiv could not read {}; starting with no placed blocks", file, e);
+                AiCiv.LOG.warn("AiCiv could not read {}; starting with no placed blocks ({})", file, WorldFiles.setAsideQuietly(file), e);
             }
         }
         return new PlacedBlocks(server, file, store);

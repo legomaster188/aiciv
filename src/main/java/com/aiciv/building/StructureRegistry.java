@@ -34,7 +34,7 @@ public final class StructureRegistry {
             try {
                 store = StructureStore.fromJson(Files.readString(file, StandardCharsets.UTF_8));
             } catch (IOException | RuntimeException e) {
-                AiCiv.LOG.warn("AiCiv could not read {}; starting with no structures", file, e);
+                AiCiv.LOG.warn("AiCiv could not read {}; starting with no structures ({})", file, WorldFiles.setAsideQuietly(file), e);
             }
         }
         return new StructureRegistry(server, file, store);
