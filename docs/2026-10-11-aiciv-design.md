@@ -406,3 +406,66 @@ Each milestone gets its own implementation plan and ends with something recordab
 - Reflexes (eat, fight back, flee, swim up, leave lava or fire) pre-empt the current action and it resumes afterwards. A bot that dies respawns and is told where its items dropped.
 - Acceptance: the game test `scriptedBotReachesIronTools` (`SurvivalGameTests`) runs a scripted seven-reply plan on a 16x16 arena and ends with a bot holding an iron pickaxe and a decision log without errors. It finished at about tick 1960 of 6000. The arena clears the gametest box's barrier outline, which otherwise sits inside a 16x16 area and blocks both line of sight and movement.
 - Live acceptance (hand to the user): `/ai spawn Smith gemini-35-flash "A determined survivor. Get iron tools as fast as you can."` in a fresh survival world; report time and the number of LLM calls from `logs/aiciv/Smith.jsonl`.
+
+## Milestone 3 — Builders & Society
+
+Approved 2026-10-12. It replaces the earlier milestone 3 list. Notes (`remember`/`forget`), budget stretching and the 15-bot live smoke test are still open and move to a later milestone. Plan: `docs/superpowers/plans/2026-10-12-aiciv-milestone-3.md`.
+
+**Building.** `build` takes a blueprint the model writes: layers listed bottom to top, each a list of rows (row 0 nearest the builder, columns left to right), plus a legend from symbols to block ids. `.` means the cell must be air and a space means leave it alone. The origin is "here" (centred 2 blocks in front of the bot) or given coordinates, with a facing of N, E, S or W. The limit is 16x16x16. `build_template` builds a `hut`, `tower`, `wall`, `bridge` or `farm_plot` from a size and a material. Building is survival-fair:
+- Blocks must be in the inventory. Missing materials fail the build before anything changes, with the exact list (`missing materials: 13 cobblestone`).
+- Blocks are placed bottom-up, within reach and line of sight, against a real face. The bot pillars with throwaway blocks to reach high cells and removes that scaffolding afterwards.
+- Only natural blocks inside the footprint are cleared. A footprint that overlaps a block another player or bot placed, a block entity, or an unbreakable block fails instead.
+
+Finished builds are named and kept per world in `<world>/aiciv/structures.json`. Every bot's snapshot lists them (`Structures: ada_hut by Ada at 10 64 -3 (12m NE)`).
+
+**Placed blocks.** Every block a player or bot places is recorded in `<world>/aiciv/placed.json` (capacity 250,000). Navigation never digs placed blocks and `mine` skips them, so bots do not tunnel through or strip each other's builds.
+
+**Chests.** `place_chest`, `look_in_chest` (puts the contents in the event log), `deposit` (`all`, `all_except_tools`, which also keeps weapons, armor and food, or an item list) and `withdraw item count`. All of them use the chest's real menu. Each bot remembers the last-seen contents of up to 16 containers, and the snapshot shows them.
+
+**Naming and signs.** `rename` at an anvil pays the real level cost. `name_mob` uses a name tag and renames the tag at an anvil first when needed. `sign` places a sign and writes up to 4 lines of 15 characters.
+
+**Combat moves.** `combat` runs a short chain of exact moves: `attack_once`, `strafe left|right` (≤ 20 ticks), `back_off` (≤ 20), `jump_crit`, `shield` (≤ 40), `bow` (charge ≤ 30 ticks) and `hotbar`. There are at most 12 moves per call. `attack` and the reflexes stay as they are.
+
+**Social and economy.**
+- `give` walks to a player and throws the items toward them, and a receiving bot is told.
+- `drop` throws items on the ground.
+- `trade_list` and `trade` deal with villagers through the real merchant menu, so prices include demand and reputation and stock is real. A trade is chosen by wanted item or by offer index, 1 to 12 times.
+
+**Farming and food.**
+- `till` needs a hoe and prefers soil within 4 blocks of water.
+- `plant` puts seeds on farmland.
+- `harvest` breaks ripe crops and replants them.
+- `breed` feeds two adults the food that animal really eats.
+- `fish` casts a real rod and reels in when a fish bites. It reads the hook's bite timer through an accessor mixin, which is fair because clients see the bobber dip.
+- Cooking is the existing `smelt`.
+
+**Utility.**
+- `sleep` follows the real bed rules (night or thunder, no monsters nearby) and places a carried bed if needed.
+- Wooden doors and fence gates are opened during path following and closed behind the bot. Doors are never broken.
+- `use_block` presses buttons, flips levers, and works doors, trapdoors, gates and bells.
+- `enchant` at a table uses lapis and levels and picks option 1 to 3.
+- `brew` makes water bottles, an awkward base, then one of ten basic potions.
+
+**Perception.** The snapshot adds the XP level, remembered chest contents, villagers and their known offers, crop states (ripe, growing, free farmland), known structures, and a night line when sleeping is possible.
+
+**Both decision modes.** Each feature lives in its own module. A module registers its tools for tool-mode models, its factory entries, its menu options for menu-mode models (Jev) and its snapshot sections. A sync test checks that catalog names, factory argument names and menu calls agree.
+
+**Fairness rules carried from milestone 2:**
+- No teleporting, no item spawning, and no seeing or acting through walls.
+- Reach is 4.5 for blocks and 3.0 for entities. Timings and costs are real.
+- Game state is touched only on the server thread.
+- Game tests share one world. Each test keeps its own arena, bot names and entities, and night tests run in their own `aiciv:night` environment.
+
+**Accepted when:** the scripted game test `scriptedBotBuildsStoresAndSleeps` passes. In it, a bot builds a 5x5 hut from a blueprint, stores its cobblestone, dirt and logs in a chest it places, and sleeps in a bed it carries. Live: a builder bot and a Jev trader bot run for 30 minutes in a world near a village.
+
+### Changes made during milestone 3
+
+- Acceptance: the game test `scriptedBotBuildsStoresAndSleeps` (`CivGameTests`, `aiciv:night`, 16x16 arena, `padding = 24`) runs three scripted replies: `build` of the 55-plank `ada_hut`, `place_chest` + `deposit`, `sleep`. It checks the registered structure, the 55 planks, a chest with exactly 20 cobblestone, 10 dirt and 5 oak logs, that the bot slept, that the stone pickaxe was kept, and a decision log with no errors. It finished at about tick 520 of 6000 (517-523 over several runs).
+- Beds are rejected inside blueprints (a bed is two cells with an orientation); the bot places one with `place`, and `sleep` places a carried bed.
+- `build` walks to a computed viewpoint when it cannot place a cell from where it stands, because `Approach` only guarantees sight of the target cell, not of a face to place against.
+- The acceptance test exposed two bugs, both fixed. (1) `Approach` could never succeed on its close-in retry for a block at floor level: the goal point sits 1.62 below the target, so a radius under about 1.5 was unreachable from any standable cell; the goal radius now has a floor of 1.6. That made the bot give up taking down its scaffolding (the block stayed in the world). (2) Scaffold removal left the cobblestone drop on the ground out of reach, so the bot ended with one cobblestone fewer; `BuildAction` now walks to pick up the scaffold drops inside its box before it reports the build as finished.
+- Bots take real fall damage (`AiPlayer` adds up falls each tick).
+- Known flaky game tests, not related to this milestone: `breakerBreaksStone...`, `minesThroughTheWall...`, `hungryBotEats...`, `panelServesState...`, `sleepsInCarriedBed` (night environment timing) and, occasionally, `cancelDuringDepositClosesChest`.
+- Live acceptance (hand to the user): in a survival world near a village, `/ai spawn Ada gemini-35-flash "A builder who wants a cosy home and a farm."` and `/ai spawn Jev1 jev "A trader."` for 30 minutes; report structures built (the Structures line), chests used, trades made, nights slept, and LLM calls per bot from `logs/aiciv/*.jsonl`.
+
+**Next: Milestone 4 — Endgame** (not planned yet): building and lighting a nether portal, nether travel and finding a fortress, blazes for rods, eyes of ender and finding the stronghold, and the ender dragon.
