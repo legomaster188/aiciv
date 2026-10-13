@@ -20,6 +20,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.TheEndGatewayBlockEntity;
 import net.minecraft.world.phys.Vec3;
 
 /** Smelt, place, eat and equip, driven through a real bot on a small stone floor. */
@@ -51,6 +52,41 @@ public final class ItemActionGameTests {
             float health = bot.player.getHealth();
             removeBot(manager[0], "TestFallDamage");
             helper.assertTrue(health >= 16.0F && health <= 18.0F, "expected about 3 fall damage, health is " + health);
+        });
+    }
+
+    /**
+     * A teleport is not a fall: an end gateway (it teleports during the bot's own tick, like a portal or chorus fruit)
+     * takes the bot from a 6-high pillar to one block above the floor 11 blocks away. Only that last block is a fall
+     * (no damage); counting the teleport too would make it a 6-block fall.
+     */
+    @GameTest(maxTicks = 300, padding = 24)
+    public void teleportDownIsNotAFall(GameTestHelper helper) throws Exception {
+        BotManager[] manager = new BotManager[1];
+        Bot bot = bot(helper, manager, "TestFallPortal");
+        GameTestKit.clearBarriers(helper, 8);
+        for (int x = 8; x < 16; x++) for (int z = 0; z < 8; z++) helper.setBlock(x, 0, z, Blocks.STONE);
+        for (int y = 1; y <= 6; y++) helper.setBlock(2, y, 3, Blocks.STONE);
+        boolean[] sent = new boolean[1];
+        float[] lowest = {Float.MAX_VALUE}; // natural regeneration would heal a hit before the end, so watch every tick
+        helper.onEachTick(() -> {
+            if (sent[0]) lowest[0] = Math.min(lowest[0], bot.player.getHealth());
+        });
+        helper.runAfterDelay(80, () -> { // after the spawn protection
+            helper.setBlock(2, 7, 3, Blocks.END_GATEWAY);
+            helper.getBlockEntity(new BlockPos(2, 7, 3), TheEndGatewayBlockEntity.class).setExitPosition(helper.absolutePos(new BlockPos(13, 2, 3)), true);
+            Vec3 top = helper.absoluteVec(new Vec3(2.5, 7, 3.5));
+            bot.player.teleportTo(top.x, top.y, top.z);
+            sent[0] = true;
+        });
+        helper.runAfterDelay(295, () -> {
+            if (manager[0].bot("TestFallPortal").isPresent()) removeBot(manager[0], "TestFallPortal");
+        });
+        helper.succeedWhen(() -> {
+            double x = bot.player.getX() - helper.absoluteVec(Vec3.ZERO).x;
+            helper.assertTrue(sent[0] && x > 12 && bot.player.onGround(), "not through the gateway yet: x=" + x + " onGround=" + bot.player.onGround());
+            helper.assertTrue(lowest[0] == bot.player.getMaxHealth(), "the teleport hurt the bot: health went down to " + lowest[0]);
+            removeBot(manager[0], "TestFallPortal");
         });
     }
 
