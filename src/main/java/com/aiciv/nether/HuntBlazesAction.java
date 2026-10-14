@@ -15,7 +15,9 @@ import com.aiciv.nav.NearGoal;
 import com.aiciv.nav.Pos;
 import com.aiciv.world.Finder;
 import com.aiciv.world.InventoryOps;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
@@ -55,6 +57,12 @@ public final class HuntBlazesAction implements Action {
     static final int REPLAN_TICKS = 10;
     static final int MAX_NAV_FAILURES = 3;
     static final double REPLAN_DISTANCE = 1.5;
+    /** With no blaze and no spawner in sight, the bot follows the fortress's bricks this many times before giving up. */
+    static final int EXPLORE_HOPS = 6;
+    /** How far one such hop goes, at most; a hop target is at least {@link #HOP_MIN} from every place already visited. */
+    static final int HOP = 16;
+    static final int HOP_MIN = 8;
+    static final int BRICK_SIGHT = 24;
 
     private final int count;
     private final boolean anyDimension;
@@ -77,6 +85,10 @@ public final class HuntBlazesAction implements Action {
     private int sinceGoTo;
     private int navFailures;
     private boolean failureCounted;
+    private int hops;
+    private final List<Vec3> visited = new ArrayList<>();
+    private BlockPos hopTarget;
+    private int hopTicks;
     private String summary;
 
     public HuntBlazesAction(int count) {
@@ -126,6 +138,10 @@ public final class HuntBlazesAction implements Action {
         if (target == null) return idle(ctx, p, gained);
         sawBlaze = true;
         walkingToSpawner = false;
+        if (hopTarget != null) {
+            ctx.navigator().stop();
+            hopTarget = null;
+        }
         if (target != current) {
             stopFighting(ctx, p);
             current = target;
@@ -232,7 +248,8 @@ public final class HuntBlazesAction implements Action {
             summary = "got " + gained + " of " + count + " blaze rods; no more blazes came";
             return ActionStatus.DONE;
         }
-        return ActionStatus.failed(sawBlaze ? "could not hit any blaze" : "no blazes in sight");
+        if (sawBlaze) return ActionStatus.failed("could not hit any blaze");
+        return ActionStatus.failed(hops > 0 ? "no blazes found (followed the nether bricks " + hops + " times)" : "no blazes in sight");
     }
 
     /** Nobody to fight: wait near a remembered spawner for blazes to come, and give up after a quiet spell. */
@@ -260,9 +277,61 @@ public final class HuntBlazesAction implements Action {
                 }
             }
         }
+        if (spawner.isEmpty()) {
+            ActionStatus exploring = explore(ctx, p);
+            if (exploring != null) return exploring;
+        }
         // The walk to a far spawner does not count as a quiet spell.
         if (!walking && ++quiet >= QUIET_LIMIT) return giveUp(ctx, gained);
         return ActionStatus.RUNNING;
+    }
+
+    /**
+     * No blaze and no spawner known: walk along the fortress to nether bricks farther from everywhere the bot has
+     * already been, up to {@link #EXPLORE_HOPS} hops. Null once there is nowhere new to go.
+     */
+    private ActionStatus explore(BotContext ctx, AiPlayer p) {
+        if (hopTarget != null) {
+            if (++hopTicks < 3 || ctx.navigator().status().state() == NavStatus.State.RUNNING) return ActionStatus.RUNNING;
+            hopTarget = null; // arrived, or could not get there: either way look around and pick the next
+            quiet = 0;
+        }
+        if (hops >= EXPLORE_HOPS) return null;
+        if (visited.isEmpty()) visited.add(p.position());
+        BlockPos next = nextHop(ctx, p);
+        if (next == null) return null;
+        hops++;
+        hopTarget = next;
+        hopTicks = 0;
+        visited.add(Vec3.atBottomCenterOf(next.above()));
+        ctx.navigator().goTo(new NearGoal(next.getX() + 0.5, next.getY() + 1, next.getZ() + 0.5, 2));
+        return ActionStatus.RUNNING;
+    }
+
+    /** The seen or remembered nether brick within a hop that lies farthest from every place visited, or null. */
+    private BlockPos nextHop(BotContext ctx, AiPlayer p) {
+        List<BlockPos> bricks = new ArrayList<>(Finder.visibleStates(p, st -> st.is(Blocks.NETHER_BRICKS), BRICK_SIGHT));
+        if (ctx.knownBlocks() != null) {
+            Pos here = new Pos(p.getBlockX(), p.getBlockY(), p.getBlockZ());
+            for (Map.Entry<Pos, String> e : ctx.knownBlocks().nearestN(here, 256, HOP_MIN)) {
+                if (e.getValue().equals("nether_bricks")) bricks.add(new BlockPos(e.getKey().x(), e.getKey().y(), e.getKey().z()));
+            }
+        }
+        BlockPos best = null;
+        double bestSpread = HOP_MIN;
+        for (BlockPos b : bricks) {
+            Vec3 stand = Vec3.atBottomCenterOf(b.above());
+            double d = stand.distanceTo(p.position());
+            if (d > HOP + 4) continue;
+            if (!p.level().getBlockState(b.above()).isAir() || !p.level().getBlockState(b.above(2)).isAir()) continue;
+            double spread = Double.MAX_VALUE;
+            for (Vec3 v : visited) spread = Math.min(spread, v.distanceTo(stand));
+            if (spread > bestSpread) {
+                best = b;
+                bestSpread = spread;
+            }
+        }
+        return best;
     }
 
     /** A visible spawner whose spinning mob is a blaze becomes a waypoint. */
@@ -302,6 +371,7 @@ public final class HuntBlazesAction implements Action {
         anchor = null;
         equipped = false;
         walkingToSpawner = false;
+        hopTarget = null;
     }
 
     @Override

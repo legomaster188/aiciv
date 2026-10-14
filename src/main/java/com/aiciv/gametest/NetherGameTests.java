@@ -308,6 +308,31 @@ public final class NetherGameTests {
         });
     }
 
+    /** No blaze in sight at the start of a long brick corridor: the hunt follows the bricks until it finds the one at the far end. */
+    @GameTest(maxTicks = 1500, padding = 24)
+    public void huntFollowsTheFortressToFindBlazes(GameTestHelper helper) {
+        GameTestKit.clearBarriers(helper, 8);
+        for (int x = -8; x <= 44; x++) {
+            for (int z = 0; z <= 4; z++) {
+                helper.setBlock(x, -1, z, Blocks.STONE);
+                helper.setBlock(x, 0, z, Blocks.NETHER_BRICKS);
+            }
+        }
+        Runnable release = GameTestKit.keepEntitiesTicking(helper, -8, 0, 44, 4);
+        Blaze blaze = helper.spawnWithNoFreeWill(EntityTypes.BLAZE, 38.5f, 1.0f, 2.5f);
+        blaze.setHealth(5.0F);
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestNethExplore", -6.5, 2.5);
+        Bot bot = s.bot();
+        bot.player.getInventory().setItem(0, new ItemStack(Items.DIAMOND_SWORD));
+        bot.executor.replace(List.of(new HuntBlazesAction(16, true)), bot.context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(bot);
+            helper.assertTrue(!blaze.isAlive(), "the blaze at the far end is alive; bot at " + bot.player.position() + "; " + events);
+            release.run();
+            GameTestKit.remove(s);
+        });
+    }
+
     @GameTest(maxTicks = 1500, padding = 24)
     public void goToNetherLightsTheFrameAndEntersIt(GameTestHelper helper) {
         ServerLevel nether = helper.getLevel().getServer().getLevel(Level.NETHER);
