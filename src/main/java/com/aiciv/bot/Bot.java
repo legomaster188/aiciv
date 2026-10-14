@@ -26,6 +26,8 @@ public final class Bot {
     public BotContext context;
     /** The planner state when the bot's model is an autopilot; null for LLM bots. */
     public AutopilotBrain autopilot;
+    /** Full id of the dimension the bot was in at the last tick, e.g. {@code minecraft:the_nether}. */
+    public String dimension;
     /** Counts deaths, so a reply asked for in an earlier life is dropped. */
     int life;
         /** Set between a death and the respawn on the next tick. */

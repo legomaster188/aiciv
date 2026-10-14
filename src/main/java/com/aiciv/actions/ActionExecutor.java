@@ -91,19 +91,32 @@ public final class ActionExecutor {
                 finished.clear();
                 return summary;
             }
-            default: {
-                StringBuilder summary = new StringBuilder("failed: ").append(current.describe()).append(": ").append(status.reason());
-                if (!queue.isEmpty()) {
-                    List<String> skipped = new ArrayList<>();
-                    for (Action a : queue) skipped.add(a.describe());
-                    summary.append(" (skipped: ").append(String.join(", ", skipped)).append(')');
-                }
-                current = null;
-                queue.clear();
-                finished.clear();
-                return summary.toString();
-            }
+            default:
+                return failCurrent(status.reason());
         }
+    }
+
+    /**
+     * The bot just changed dimension. The current action ends as a failure (cancelled, the queue skipped) unless it
+     * survives the change; returns the summary, or null when nothing ended.
+     */
+    public String dimensionChanged(BotContext ctx, String dimensionShortName) {
+        if (current == null || current.survivesDimensionChange()) return null;
+        cancelQuietly(current, paused ? reflexOwned(ctx) : ctx);
+        return failCurrent("you went through to " + dimensionShortName);
+    }
+
+    private String failCurrent(String reason) {
+        StringBuilder summary = new StringBuilder("failed: ").append(current.describe()).append(": ").append(reason);
+        if (!queue.isEmpty()) {
+            List<String> skipped = new ArrayList<>();
+            for (Action a : queue) skipped.add(a.describe());
+            summary.append(" (skipped: ").append(String.join(", ", skipped)).append(')');
+        }
+        current = null;
+        queue.clear();
+        finished.clear();
+        return summary.toString();
     }
 
     /**

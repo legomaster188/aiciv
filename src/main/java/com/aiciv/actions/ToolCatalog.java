@@ -5,14 +5,63 @@ import static com.aiciv.modules.Tools.prop;
 import static com.aiciv.modules.Tools.props;
 
 import com.aiciv.modules.ToolModules;
+import com.aiciv.perception.SnapshotData;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /** The actions offered to models, in OpenAI function-calling format. */
 public final class ToolCatalog {
+    /**
+     * How much of the catalog a model is sent (aiciv.json {@code toolCatalog}). FULL: every tool. GATED: the core tools
+     * and the modules {@link com.aiciv.modules.ToolModule#relevant relevant} to the bot's situation. COMPACT: gated, without
+     * the parameter descriptions, for providers whose per-request token limit even the gated catalog breaks.
+     */
+    public enum Mode {
+        FULL, GATED, COMPACT;
+
+        /** The mode a config value names ("full", "gated", "compact", any case), or null. */
+        public static Mode parse(String value) {
+            if (value == null) return null;
+            for (Mode m : values()) if (m.name().equalsIgnoreCase(value.trim())) return m;
+            return null;
+        }
+    }
+
     private ToolCatalog() {}
 
+    /** Every tool: the core ones and every module's. */
     public static JsonArray tools() {
+        JsonArray tools = core();
+        for (JsonObject t : ToolModules.tools()) tools.add(t);
+        return tools;
+    }
+
+    /** The tools to send for a bot in this situation; {@code ctx} may be null. */
+    public static JsonArray tools(Mode mode, SnapshotData snap, BotContext ctx) {
+        if (mode == Mode.FULL) return tools();
+        JsonArray tools = core();
+        for (JsonObject t : ToolModules.tools(snap, ctx)) tools.add(t);
+        return mode == Mode.COMPACT ? compact(tools) : tools;
+    }
+
+    /** A copy of {@code tools} without the parameters' descriptions; names, types and the function descriptions stay. */
+    static JsonArray compact(JsonArray tools) {
+        JsonArray out = tools.deepCopy();
+        for (JsonElement t : out) {
+            JsonObject fn = t.getAsJsonObject().getAsJsonObject("function");
+            if (!fn.has("parameters")) continue;
+            for (Map.Entry<String, JsonElement> p : fn.getAsJsonObject("parameters").getAsJsonObject("properties").entrySet()) {
+                p.getValue().getAsJsonObject().remove("description");
+            }
+        }
+        return out;
+    }
+
+    private static JsonArray core() {
         JsonArray tools = new JsonArray();
         tools.add(fn("say", "Say something in public chat. Players nearby hear it.",
                 props("text", "string", "What to say. One short chat message."), "text"));
@@ -51,17 +100,28 @@ public final class ToolCatalog {
         tools.add(fn("attack", "Fight the nearest mob of a type or a player until it is dead, using your best weapon.",
                 props("target", "string", "A mob type such as zombie, or a player's name."), "target"));
         tools.add(fn("stop", "Stop what you are doing and stand still.", null));
-        for (JsonObject t : ToolModules.tools()) tools.add(t);
         return tools;
     }
 
     public static String guide() {
-        StringBuilder guide = new StringBuilder("Actions: ").append(ActionFactory.available()).append("""
+        return guide(ActionFactory.available(), ToolModules.guideLines());
+    }
+
+    /** The guide for the tools {@link #tools(Mode, SnapshotData, BotContext)} sends: their names and their modules' lines. */
+    public static String guide(Mode mode, SnapshotData snap, BotContext ctx) {
+        if (mode == Mode.FULL) return guide();
+        List<String> names = new ArrayList<>();
+        for (JsonElement t : tools(Mode.GATED, snap, ctx)) names.add(t.getAsJsonObject().getAsJsonObject("function").get("name").getAsString());
+        return guide(String.join(", ", names), ToolModules.guideLines(snap, ctx));
+    }
+
+    private static String guide(String actions, List<String> lines) {
+        StringBuilder guide = new StringBuilder("Actions: ").append(actions).append("""
                 . Each one ends as done or failed and you will be told which.
                 Do more with less: one turn can chain up to 6 actions, e.g. mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe.
                 If you cannot call functions, reply with only a JSON array instead, for example:
                 [{"action": "say", "args": {"text": "hello"}}, {"action": "goToPlayer", "args": {"name": "Steve"}}]""");
-        for (String line : ToolModules.guideLines()) guide.append('\n').append(line);
+        for (String line : lines) guide.append('\n').append(line);
         return guide.toString();
     }
 }

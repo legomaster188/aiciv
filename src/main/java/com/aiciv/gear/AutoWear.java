@@ -8,6 +8,9 @@ import com.aiciv.gear.GearPlan.Job;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.ToDoubleFunction;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.Items;
 
 /**
  * Puts on armor the bot carries when it beats what is worn, like a player glancing at their inventory. Looks every
@@ -18,15 +21,23 @@ import java.util.Set;
 public final class AutoWear {
     static final int INTERVAL_TICKS = 10;
 
+    private static final String ELYTRA = "elytra";
+
     private int lastLook = Integer.MIN_VALUE / 2;
 
     public void tick(Bot b) {
         AiPlayer p = b.player;
         if (p.tickCount - lastLook < INTERVAL_TICKS) return;
         if (p.containerMenu != p.inventoryMenu || p.isUsingItem() || p.isSwinging() || b.executor.upNext(GearUpAction.class)) return;
+        // Mid-glide nothing is swapped, and a worn elytra is never traded for a chestplate: the bot chose to fly.
+        if (p.isFallFlying()) return;
         lastLook = p.tickCount;
         Map<String, Integer> inventory = CraftExecutor.inventoryCounts(p);
-        Job job = GearPlan.next(Armor.worn(p), inventory, List.of(), id -> false, Armor::score, Set.of());
+        Map<GearPlan.Slot, String> worn = Armor.worn(p);
+        boolean elytra = p.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA);
+        if (elytra) worn.put(GearPlan.Slot.CHEST, ELYTRA);
+        ToDoubleFunction<String> score = id -> id.equals(ELYTRA) ? Double.MAX_VALUE : Armor.score(id);
+        Job job = GearPlan.next(worn, inventory, List.of(), id -> false, score, Set.of());
         String item = job != null ? job.item()
                 : p.getOffhandItem().isEmpty() && inventory.getOrDefault(GearUpAction.SHIELD, 0) > 0 ? GearUpAction.SHIELD : null;
         if (item == null) return;

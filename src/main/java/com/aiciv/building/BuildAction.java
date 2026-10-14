@@ -78,6 +78,9 @@ public final class BuildAction implements Action {
     private final List<BlockPos> clearOrder = new ArrayList<>();
     private final Set<BlockPos> planCells = new HashSet<>();
     private final Set<Item> materialItems = new HashSet<>();
+    /** Block states of the cells that have any, with relative facings already made absolute. */
+    private final Map<BlockPos, Map<String, String>> wantedProps = new HashMap<>();
+    private OrientedPlacer oriented;
 
     private Job job;
     private BlockPos target;
@@ -149,12 +152,17 @@ public final class BuildAction implements Action {
             String problem = resolve(c.block(), blocks);
             if (problem != null) return fail(problem);
         }
+        for (BuildPlan.Cell c : plan.places()) {
+            String problem = stateProblem(c.block(), blocks.get(c.block()), c.props());
+            if (problem != null) return fail(problem);
+        }
         String door = BuildPlan.doorProblem(blueprint);
         if (door != null) return fail(door);
 
         for (BuildPlan.Cell c : plan.places()) {
             BlockPos pos = toBlockPos(c.pos());
             wanted.put(pos, blocks.get(c.block()));
+            if (!c.props().isEmpty()) wantedProps.put(pos, c.props());
             planCells.add(pos);
             clearOrder.add(pos);
             materialItems.add(blocks.get(c.block()).asItem());
@@ -212,6 +220,22 @@ public final class BuildAction implements Action {
         if (block.asItem() == Items.AIR) return id + " can't be placed by hand";
         if (id.endsWith("_bed")) return id + " can't be built from a blueprint; use place for beds";
         into.put(id, block);
+        return null;
+    }
+
+    /** Properties a player can choose by placing; the rest are the game's. */
+    static final List<String> HAND_PROPERTIES = List.of("facing", "delay", "mode", "face", "axis", "powered");
+
+    /** Why these block states can't be built by hand, or null. */
+    static String stateProblem(String id, Block block, Map<String, String> props) {
+        for (Map.Entry<String, String> e : props.entrySet()) {
+            String name = e.getKey();
+            if (!HAND_PROPERTIES.contains(name) || (name.equals("powered") && !id.equals("lever"))) {
+                return id + ": property \"" + name + "\" can't be chosen by hand (supported: " + String.join(", ", HAND_PROPERTIES) + ")";
+            }
+            net.minecraft.world.level.block.state.properties.Property<?> property = block.getStateDefinition().getProperty(name);
+            if (property == null || property.getValue(e.getValue()).isEmpty()) return id + " has no " + name + "=" + e.getValue();
+        }
         return null;
     }
 
@@ -393,10 +417,13 @@ public final class BuildAction implements Action {
     private ActionStatus place(BotContext ctx, AiPlayer p, ServerLevel level) {
         Block want = wanted.get(target);
         BlockState now = level.getBlockState(target);
-        if (now.is(want) || !now.canBeReplaced()) {
+        // A block being set (placed, delay still to be clicked) is the placer's until it reports.
+        if (oriented == null && (now.is(want) || !now.canBeReplaced())) {
             mode = Mode.CHOOSE;
             return ActionStatus.RUNNING;
         }
+        Map<String, String> props = wantedProps.get(target);
+        if (props != null) return placeOriented(ctx, level, want, props);
         if (p.getBoundingBox().intersects(new AABB(target))) return toViewpoint(ctx, p, level, "standing in the way");
         Item item = want.asItem();
         switch (BlockPlacer.place(p, target, s -> s.is(item))) {
@@ -424,6 +451,25 @@ public final class BuildAction implements Action {
                     return fail("could not place " + blockId(want.defaultBlockState()) + " at " + coords(target) + " - something is in the way");
                 }
                 return ActionStatus.RUNNING;
+        }
+    }
+
+    /** A block whose facing comes from where the bot looks: see {@link OrientedPlacer}. */
+    private ActionStatus placeOriented(BotContext ctx, ServerLevel level, Block want, Map<String, String> props) {
+        if (oriented == null) oriented = new OrientedPlacer(target, want, blockId(want.defaultBlockState()), props, planCells);
+        OrientedPlacer.Status s = oriented.tick(ctx);
+        switch (s.state()) {
+            case RUNNING:
+                return ActionStatus.RUNNING;
+            case DONE:
+                oriented = null;
+                cooldown = PACE - 1;
+                deferred.clear();
+                mode = Mode.CHOOSE;
+                return ActionStatus.RUNNING;
+            default:
+                oriented = null;
+                return fail(s.reason());
         }
     }
 
@@ -583,7 +629,8 @@ public final class BuildAction implements Action {
         // A reflex moved the bot: forget the walk and the dig and choose again from where it stands.
         breaking = false;
         approach = null;
-        if (mode != Mode.START) mode = Mode.CHOOSE;
+        // Finish a block that is half set (placed, delay still to be clicked) where it stands.
+        if (mode != Mode.START) mode = oriented != null && job == Job.PLACE ? Mode.WORK : Mode.CHOOSE;
         cooldown = 0;
     }
 
@@ -591,6 +638,7 @@ public final class BuildAction implements Action {
     public void cancel(BotContext ctx) {
         ctx.breaker().cancel();
         if (approach != null) approach.cancel(ctx);
+        if (oriented != null) oriented.cancel(ctx);
         ctx.navigator().stop();
     }
 

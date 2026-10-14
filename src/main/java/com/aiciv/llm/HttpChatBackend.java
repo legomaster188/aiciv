@@ -62,16 +62,28 @@ public final class HttpChatBackend implements ChatBackend {
             }
             return new BackendResult.Failed("provider sent a reply that is not JSON", false);
         }
-        if (status == 429) {
+        String raw = body == null ? "" : body;
+        // Some providers send a request over the per-request limit as a 429; waiting would never help it.
+        if (status == 429 && !tooLarge(status, raw)) {
             return new BackendResult.RateLimited(retryAfter.flatMap(HttpChatBackend::seconds).orElse(null));
         }
-        String raw = body == null ? "" : body;
         // Gemini answers HTTP 400 "API key not valid" for a bad key. Classify on the provider's own words.
         boolean badKey = status == 401 || status == 403 || (status == 400 && snippet(raw).contains("API key"));
         // Redact before condensing or cutting, so no part of the key survives at the cut.
         String shown = snippet(redact(raw, apiKey));
         if (badKey) return new BackendResult.Failed("HTTP " + status + " (key rejected): " + shown, true);
+        if (tooLarge(status, raw)) return new BackendResult.TooLarge("request too large: HTTP " + status + ": " + shown);
         return new BackendResult.Failed("HTTP " + status + ": " + shown, false);
+    }
+
+    /**
+     * HTTP 413, or an error that says the request itself is too big: Groq answers "Request too large for model ... on
+     * tokens per minute (TPM)" when one request alone exceeds the limit, which no amount of waiting fixes.
+     */
+    static boolean tooLarge(int status, String body) {
+        if (status == 413) return true;
+        String text = body.toLowerCase(java.util.Locale.ROOT);
+        return text.contains("request too large") || text.contains("payload too large") || text.contains("request entity too large");
     }
 
     /** The text with every copy of the key replaced by ***. */

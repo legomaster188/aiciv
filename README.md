@@ -2,8 +2,9 @@
 
 AI players for Minecraft 26.3, each driven by a language model (Gemini, Groq, OpenRouter,
 GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model). They join as normal
-players, chat, and walk around. Milestones 1 to 3 (chat, survival, building and society) and 5 (autopilot
-bots that need no model) of the design in `docs/superpowers/specs/2026-10-11-aiciv-design.md`.
+players, chat, and walk around. Milestones 1 to 5 of the design in `docs/superpowers/specs/2026-10-11-aiciv-design.md`:
+chat, survival, building and society, everything a player can do (the endgame, travel, items, animals,
+stations and redstone), and autopilot bots that need no model.
 
 Server-side only: viewers join with an unmodded 26.3 client. Works in singleplayer too.
 
@@ -193,6 +194,22 @@ furnaces and fuel, reach, attack cooldown). Each action ends as done or failed w
 | `enchant(item, option)`, `brew(potion, count)` | Enchanting table (lapis and levels) and brewing stand |
 | `stop()` | Stand still |
 
+Milestone 4 added about 57 actions. Each is a catalog function with the same limits and failure texts a player would
+meet; `go_to_nether`, `get_blaze_rods`, `go_to_end` and the other routines chain primitives (see below).
+
+| Group | Actions |
+|-------|---------|
+| Portals and dimensions | `build_portal` (10 obsidian, lit with flint and steel or a fire charge), `cast_portal` (water on lava against a temporary wall), `light_portal`, `enter_portal(kind)` (`nether`, `end`, `any`; real portal timers), `go_to_nether`, `leave_nether` |
+| Nether | `find_fortress(direction, distance)`, `hunt_blazes(count)`, `get_blaze_rods(count)` |
+| Stronghold and the End | `make_eyes(count)`, `throw_eye`, `locate_stronghold(spread)`, `go_to_stronghold`, `find_portal_room`, `fill_end_portal`, `go_to_end` |
+| The dragon | `fight_dragon`, `shoot_crystals(count)`, `break_cage`, `hit_dragon(seconds)`, `leave_end` |
+| Travel | `place_boat`, `board`, `dismount`, `ride_to(x, z)`, `boat_to(x, z)`, `place_minecart`, `ride_minecart` (at most 512 blocks per call) |
+| Flight and pearls | `fly_to(x, z)` (elytra, 16 to 1024 blocks, up to 16 rockets), `launch_elytra`, `boost`, `throw_pearl(x, y, z)` (3 to 40 blocks, costs 5 health) |
+| Items | `fill_bucket`, `empty_bucket`, `bone_meal(count)`, `ignite`, `carve_pumpkin`, `drink`, `throw`, `make_map`, `link_compass` |
+| Animals | `tame`, `saddle`, `leash`, `tie_lead`, `unleash`, `milk`, `shear`, `dye_sheep` |
+| Stations | `upgrade_netherite`, `trim_armor`, `stonecut(count)`, `grindstone`, `repair`, `loom`, `cartography`, `write_book` (10 pages of 1024 characters, title up to 32) |
+| Redstone | `build` legends take block states, `use_block` sets repeater delay, comparator mode, daylight detector mode |
+
 Tip: one turn can chain up to 6 actions (`maxActionsPerDecision`), for example
 `mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe`.
 
@@ -216,9 +233,71 @@ reach and see a face, pillars with throwaway blocks for high cells, and takes th
 up afterwards. Beds cannot be part of a blueprint: use `place`. Finished builds are remembered per world in
 `<world>/aiciv/structures.json` and listed in every bot's view.
 
+Legend values may carry block states in brackets, so redstone and other oriented blocks can be built:
+`"R": "repeater[facing=forward,delay=2]"`. `facing` is a compass direction or, relative to the blueprint,
+`forward`, `back`, `left` or `right`. Supported states are `facing`, `delay`, `mode`, `face`, `axis` and `powered`
+(levers only). The bot stands and looks the way a player would to get the facing it wants, sets repeater delays,
+comparator modes and lever positions with real clicks, and fails (taking its own wrong block down) when the block
+comes out different. A stone strip with a line of three repeaters on it, each delaying by 3 ticks:
+
+```json
+{ "name": "delay_line", "facing": "S", "legend": { "r": "repeater[facing=forward,delay=3]", "s": "stone" },
+  "layers": [ ["sss"], ["rrr"] ] }
+```
+
 **Bots never break blocks other players or bots placed.** Every placed block is recorded in
 `<world>/aiciv/placed.json`; navigation never digs them, `mine` skips them and `build` fails rather than clearing them.
 Natural blocks in a footprint are cleared.
+
+### Dimensions
+
+Bots change dimension only through real portals, with their real timers: no teleporting. The rule for every action:
+if the bot ends up in another dimension while an action runs (an accidental portal, a death, an end gateway), the
+action ends `FAILED "... you went through to <dimension>"`, the navigator stops, and nothing walks toward coordinates of
+the old dimension. Only `enter_portal` and the routines that expect to cross carry on. Actions that belong to one
+dimension check it first: `"<tool> works in the_nether; you are in overworld"`. Known blocks, chests, villagers and
+waypoints (portals, a fortress, the stronghold estimate, the End arrival) are remembered per dimension and are back when
+the bot returns. Navigation never steps into a portal block or the void. After a crossing the bot waits beside the
+arrival portal for the portal cooldown before it takes it back. If the server has no nether or End, `enter_portal`
+fails with `the_nether does not exist on this server`.
+
+### Routines and their steps
+
+A routine is one action made of primitives that the model can also call one at a time. Each step runs when the previous
+one is done; a failed step ends the routine with that step's reason.
+
+| Routine | Steps |
+|---------|-------|
+| `go_to_nether` | walk to a known portal, else light a frame in sight, else `build_portal`; then `enter_portal nether` |
+| `leave_nether` | walk to the nearest portal waypoint; `enter_portal nether` |
+| `get_blaze_rods` | `find_fortress` unless one is remembered nearby; `hunt_blazes` |
+| `make_eyes` | `craft blaze_powder` from rods when short; `craft ender_eye` |
+| `locate_stronghold` | `throw_eye`, walk sideways, `throw_eye` (a third time if the flights are nearly parallel), triangulate |
+| `go_to_stronghold` | walk to the estimate, throw eyes until one sinks, dig down, `find_portal_room` |
+| `go_to_end` | `find_portal_room`; `fill_end_portal`; `enter_portal end` (each skipped when done) |
+| `fight_dragon` | repeat what the situation needs: `shoot_crystals`, `break_cage`, `hit_dragon` |
+| `leave_end` | walk to the fountain; `enter_portal end` through the exit portal |
+| `boat_to` | `place_boat` (or use one nearby); `board`; `ride_to`; `dismount`; pick the boat up |
+| `ride_minecart` | `place_minecart`; `board`; ride until it stops; `dismount`; pick the cart up |
+
+### Tool-catalog size
+
+In tool mode every request carries a function catalog; menu mode does not send one. Each model's `toolCatalog` picks how
+much of it:
+
+- `"gated"` (the default): the core and milestone 1-3 tools always, and each milestone 4 module only when it fits the
+  bot's situation (dragon tools only in the End; nether tools in the nether or with obsidian, flint and steel, a fire
+  charge or a bucket of lava or water, or a nether portal in sight; stronghold tools with ender pearls, eyes, blaze rods
+  or powder or an end portal frame in sight; vehicles while riding, near a mount, boat or minecart, or carrying a boat,
+  minecart or saddle; flight with an elytra or pearls; stations near a station block; animals with an animal in view;
+  items when carrying a bucket, bone meal, shears, a potion, a throwable, a map or a compass). A typical overworld bot
+  gets 46 functions, about 19,200 characters.
+- `"full"`: all 95 functions, 34,578 characters (about 8,600 to 11,500 tokens).
+- `"compact"`: gated, without the parameter descriptions (about 13,100 characters for the same overworld bot).
+
+A provider that refuses a request as too large (HTTP 413, or Groq's "Request too large ... tokens per minute") does not
+count against its health: the bot logs it once and asks again at once with the compact catalog, which it keeps from then
+on. `CatalogSizeTest` measures these sizes.
 
 ### Testing sleep
 

@@ -2,6 +2,7 @@ package com.aiciv.storage;
 
 import com.aiciv.nav.Pos;
 import com.aiciv.perception.Compass;
+import com.aiciv.world.DimensionStores;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -9,24 +10,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** What a bot last saw inside the containers it opened. Pure; the bot's own memory, so it can be out of date. */
+/**
+ * What a bot last saw inside the containers it opened. Pure; the bot's own memory, so it can be out of date. One store
+ * per dimension; every method but {@link #enterDimension} acts on the active one.
+ */
 public final class ChestMemory {
     public static final int CAPACITY = 16;
     private static final int KINDS_SHOWN = 4;
 
     private record Entry(Map<String, Integer> contents, long tick) {}
 
-    private final Map<Pos, Entry> entries = new LinkedHashMap<>();
-    private String dimension;
+    private final DimensionStores<Map<Pos, Entry>> stores = new DimensionStores<>(LinkedHashMap::new);
 
-    /** Positions only mean something in one dimension: forget every chest when the bot changes dimension. */
+    /** Positions only mean something in one dimension: switch to the chests remembered in {@code key}. */
     public void enterDimension(String key) {
-        if (dimension != null && !dimension.equals(key)) entries.clear();
-        dimension = key;
+        stores.enter(key);
     }
 
     /** Remembers {@code contents} (item id to count) of the container at {@code pos}; past capacity the least recently seen is dropped. */
     public void seen(Pos pos, Map<String, Integer> contents, long tick) {
+        Map<Pos, Entry> entries = entries();
         entries.remove(pos);
         entries.put(pos, new Entry(Map.copyOf(contents), tick));
         while (entries.size() > CAPACITY) {
@@ -43,40 +46,44 @@ public final class ChestMemory {
     }
 
     public void forget(Pos pos) {
-        entries.remove(pos);
+        entries().remove(pos);
     }
 
     public Optional<Map<String, Integer>> contents(Pos pos) {
-        Entry e = entries.get(pos);
+        Entry e = entries().get(pos);
         return e == null ? Optional.empty() : Optional.of(e.contents());
     }
 
     public List<Pos> positions() {
-        return new ArrayList<>(entries.keySet());
+        return new ArrayList<>(entries().keySet());
     }
 
     /** The nearest {@code n} remembered containers to {@code from}, one line each, nearest first. */
     public List<String> describe(Pos from, int n) {
-        List<Pos> order = new ArrayList<>(entries.keySet());
+        List<Pos> order = new ArrayList<>(entries().keySet());
         order.sort(Comparator.comparingLong((Pos p) -> distanceSquared(from, p)).thenComparingInt(Pos::x).thenComparingInt(Pos::z));
         List<String> out = new ArrayList<>();
         for (Pos p : order) {
             if (out.size() >= n) break;
-            out.add(line(from, p, entries.get(p).contents()));
+            out.add(line(from, p, entries().get(p).contents()));
         }
         return out;
     }
 
     /** The item ids remembered in the container nearest to {@code from}, most plentiful first; empty when none is known. */
     public List<String> nearestKinds(Pos from) {
-        return nearest(from).map(best -> byCount(entries.get(best).contents()).stream().map(Map.Entry::getKey).toList()).orElse(List.of());
+        return nearest(from).map(best -> byCount(entries().get(best).contents()).stream().map(Map.Entry::getKey).toList()).orElse(List.of());
     }
 
     /** The remembered container nearest to {@code from}: the one {@link #nearestKinds} describes. */
     public Optional<Pos> nearest(Pos from) {
         Pos best = null;
-        for (Pos p : entries.keySet()) if (best == null || distanceSquared(from, p) < distanceSquared(from, best)) best = p;
+        for (Pos p : entries().keySet()) if (best == null || distanceSquared(from, p) < distanceSquared(from, best)) best = p;
         return Optional.ofNullable(best);
+    }
+
+    private Map<Pos, Entry> entries() {
+        return stores.active();
     }
 
     private static String line(Pos from, Pos p, Map<String, Integer> contents) {

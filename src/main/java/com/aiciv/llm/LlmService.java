@@ -1,5 +1,6 @@
 package com.aiciv.llm;
 
+import com.aiciv.actions.ToolCatalog;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.config.AiCivConfig.ModelConfig;
@@ -33,6 +34,8 @@ public final class LlmService {
         /** A menu-mode answer; the option id may still be one the menu did not offer. */
         record Chosen(Route route, MenuReply reply) implements Outcome {}
         record RateLimited(Route route) implements Outcome {}
+        /** The provider refused the request as too large; a smaller one (a compact catalog) may go through. */
+        record TooLarge(Route route, String reason) implements Outcome {}
         record Failed(Route route, String reason) implements Outcome {}
     }
 
@@ -131,13 +134,30 @@ public final class LlmService {
 
     /** Sends through the first available route, or returns empty when none can take a request now. */
     public Optional<CompletableFuture<Outcome>> trySend(String modelKey, String system, String user, JsonArray tools) {
+        return trySend(modelKey, system, user, mode -> tools);
+    }
+
+    /**
+     * As above, with the tools built for the catalog mode of the model on the route that sends (a fallback model may
+     * have its own {@code toolCatalog}).
+     */
+    public Optional<CompletableFuture<Outcome>> trySend(String modelKey, String system, String user,
+                                                        java.util.function.Function<ToolCatalog.Mode, JsonArray> toolsFor) {
         return dispatch(modelKey,
                 r -> backends.get(r.providerKey()),
                 r -> {
                     ModelConfig m = config.models.get(r.modelKey());
+                    JsonArray tools = toolsFor.apply(toolCatalog(r.modelKey()));
                     return backends.get(r.providerKey()).send(ChatRequest.build(r.modelId(), system, user, tools, m.maxTokens, m.extra));
                 },
                 (r, body) -> new Outcome.Reply(r, ReplyParser.parse(body)));
+    }
+
+    /** The model's configured catalog mode; gated when it names none or an unknown one. */
+    public ToolCatalog.Mode toolCatalog(String modelKey) {
+        ModelConfig m = config.models.get(modelKey);
+        ToolCatalog.Mode mode = m == null ? null : ToolCatalog.Mode.parse(m.toolCatalog);
+        return mode == null ? ToolCatalog.Mode.GATED : mode;
     }
 
     /** Whether the model decides by picking from an option menu (see {@link AiCivConfig#isMenuMode}). */
@@ -314,6 +334,10 @@ public final class LlmService {
                 h.onFailure(e.getMessage());
                 return new Outcome.Failed(r, e.getMessage());
             }
+        }
+        if (result instanceof BackendResult.TooLarge large) {
+            // Says nothing about the provider's health: the same provider takes a smaller request.
+            return new Outcome.TooLarge(r, large.reason());
         }
         if (result instanceof BackendResult.RateLimited rl) {
             h.onRateLimited(rl.retryAfter());

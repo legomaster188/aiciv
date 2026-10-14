@@ -1,5 +1,6 @@
 package com.aiciv.config;
 
+import com.aiciv.actions.ToolCatalog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -93,6 +94,12 @@ public final class AiCivConfig {
         public int maxTokens = 1000;
         /** "tools" (the model calls action functions) or "menu" (it picks one option from a short list). Typesafe providers always use menu. */
         public String decisionMode = "tools";
+        /**
+         * How much of the tool catalog tool-mode requests carry: "gated" (core tools plus the modules that fit the bot's
+         * situation), "full" (every tool) or "compact" (gated without parameter descriptions, for small per-request
+         * token limits). A request the provider rejects as too large is retried compact.
+         */
+        public String toolCatalog = "gated";
         /** Extra request fields merged into the body, for example {"reasoning_effort": "none"}. */
         public JsonObject extra = new JsonObject();
         /** "llm" (an LLM decides) or "autopilot" (the built-in planner decides). */
@@ -151,6 +158,7 @@ public final class AiCivConfig {
             if (m.extra == null) m.extra = new JsonObject();
             if (m.decisionMode == null) m.decisionMode = "tools";
             if (m.type == null) m.type = "llm";
+            if (m.toolCatalog == null) m.toolCatalog = "gated";
         }
         return c;
     }
@@ -181,6 +189,9 @@ public final class AiCivConfig {
             }
             if (!"tools".equals(m.decisionMode) && !"menu".equals(m.decisionMode)) {
                 problems.add("model '" + e.getKey() + "' has unknown decisionMode '" + m.decisionMode + "' (use tools or menu)");
+            }
+            if (ToolCatalog.Mode.parse(m.toolCatalog) == null) {
+                problems.add("model '" + e.getKey() + "' has unknown toolCatalog '" + m.toolCatalog + "' (use gated, full or compact)");
             }
             if (m.fallback != null && !models.containsKey(m.fallback)) {
                 problems.add("model '" + e.getKey() + "' falls back to unknown model '" + m.fallback + "'");

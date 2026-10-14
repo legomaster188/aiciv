@@ -85,6 +85,28 @@ class ModuleSyncTest {
         }
     }
 
+    /** The catalog goes with every tool-mode request, so the milestone-4 modules keep their texts short. */
+    @Test
+    void milestoneFourDescriptionsStayShort() {
+        Set<String> capped = Set.of("dimension", "nether", "stronghold", "dragon", "vehicles", "flight", "items", "animals", "stations");
+        Set<String> seen = new HashSet<>();
+        for (ToolModule m : ToolModules.ALL) {
+            if (!capped.contains(m.name())) continue;
+            seen.add(m.name());
+            for (JsonObject t : m.tools()) {
+                JsonObject fn = t.getAsJsonObject("function");
+                String name = fn.get("name").getAsString();
+                assertTrue(fn.get("description").getAsString().length() <= 200, m.name() + "/" + name + " description is over 200 characters");
+                if (!fn.has("parameters")) continue;
+                for (Map.Entry<String, JsonElement> p : fn.getAsJsonObject("parameters").getAsJsonObject("properties").entrySet()) {
+                    JsonElement d = p.getValue().getAsJsonObject().get("description");
+                    assertTrue(d == null || d.getAsString().length() <= 100, m.name() + "/" + name + "." + p.getKey() + " description is over 100 characters");
+                }
+            }
+        }
+        assertEquals(capped, seen, "every milestone-4 module is registered");
+    }
+
     @Test
     void everyModuleWithToolsOffersValidMenuOptionsInItsSample() {
         for (ToolModule m : ToolModules.ALL) {

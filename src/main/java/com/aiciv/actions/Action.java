@@ -17,4 +17,12 @@ public interface Action {
      * plan again from wherever the bot is on the next tick.
      */
     default void interrupted(BotContext ctx) {}
+
+    /**
+     * Whether the action keeps running when the bot changes dimension. Most actions work on coordinates of one
+     * dimension, so a portal, a pearl or a respawn elsewhere ends them; only portal-crossing actions say true.
+     */
+    default boolean survivesDimensionChange() {
+        return false;
+    }
 }

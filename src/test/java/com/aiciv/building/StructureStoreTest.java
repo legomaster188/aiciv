@@ -46,6 +46,20 @@ class StructureStoreTest {
     }
 
     @Test
+    void removeExactOnlyDropsThatVeryEntry() {
+        StructureStore store = new StructureStore();
+        store.add(s("Wall", "minecraft:overworld", 4, 8));
+        Structure wall = store.get("Wall").orElseThrow();
+        assertFalse(store.removeExact("wall", wall.owner(), wall.dimension(), wall.origin()), "another spelling");
+        assertFalse(store.removeExact("Wall", "someone_else", wall.dimension(), wall.origin()), "another owner");
+        assertFalse(store.removeExact("Wall", wall.owner(), "minecraft:the_nether", wall.origin()), "another dimension");
+        assertFalse(store.removeExact("Wall", wall.owner(), wall.dimension(), new Pos(4, 65, 8)), "another place");
+        assertTrue(store.get("Wall").isPresent());
+        assertTrue(store.removeExact("Wall", wall.owner(), wall.dimension(), wall.origin()));
+        assertTrue(store.get("Wall").isEmpty());
+    }
+
+    @Test
     void badEntriesAreSkipped() {
         StructureStore back = StructureStore.fromJson("[{\"name\":\"x\"},{\"nonsense\":1}]");
         assertTrue(back.get("x").isEmpty());

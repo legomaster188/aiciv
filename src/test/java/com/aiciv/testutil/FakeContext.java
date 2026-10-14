@@ -20,6 +20,7 @@ public final class FakeContext implements BotContext {
     public final FakeNavigator navigator = new FakeNavigator();
     public final Attachments attachments = new Attachments();
     public final List<String> events = new ArrayList<>();
+    public String dimension = "minecraft:overworld";
 
     @Override public Vec3 position() { return position; }
     @Override public Optional<Vec3> playerPosition(String name) { return Optional.ofNullable(players.get(name)); }
@@ -30,4 +31,5 @@ public final class FakeContext implements BotContext {
     @Override public BlockBreaker breaker() { return null; }
     @Override public void event(String text) { events.add(text); }
     @Override public Attachments attachments() { return attachments; }
+    @Override public String dimension() { return dimension; }
 }

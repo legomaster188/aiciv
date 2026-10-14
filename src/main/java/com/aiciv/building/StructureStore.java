@@ -36,6 +36,21 @@ public final class StructureStore {
         return true;
     }
 
+    /**
+     * Forgets the structure only when the entry under that name is exactly this one: the same spelling, owner, dimension
+     * and origin. A bot taking down its own temporary build never drops someone else's entry that happens to share the
+     * name in another case, place or dimension.
+     */
+    public boolean removeExact(String name, String owner, String dimension, Pos origin) {
+        Structure s = name == null ? null : byName.get(key(name));
+        if (s == null || !s.name().equals(name) || !s.owner().equals(owner) || !s.dimension().equals(dimension) || !s.origin().equals(origin)) {
+            return false;
+        }
+        byName.remove(key(name));
+        dirty = true;
+        return true;
+    }
+
     /** Up to {@code n} structures in the dimension, nearest origin first. */
     public List<Structure> nearest(String dimension, Pos from, int n) {
         List<Structure> out = new ArrayList<>();

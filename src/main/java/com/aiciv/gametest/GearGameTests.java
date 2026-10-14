@@ -124,6 +124,21 @@ public final class GearGameTests {
         });
     }
 
+    @GameTest(maxTicks = 80)
+    public void autoWearKeepsAWornElytra(GameTestHelper helper) {
+        GameTestKit.Spawned s = arena(helper, "TestGearElytra");
+        AiPlayer p = s.bot().player;
+        p.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.ELYTRA));
+        p.getInventory().setItem(3, new ItemStack(Items.DIAMOND_CHESTPLATE));
+        p.getInventory().setItem(4, new ItemStack(Items.IRON_HELMET));
+        helper.runAfterDelay(60, () -> {
+            helper.assertTrue(p.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA), "the elytra was swapped for " + p.getItemBySlot(EquipmentSlot.CHEST));
+            helper.assertTrue(p.getItemBySlot(EquipmentSlot.HEAD).is(Items.IRON_HELMET), "other slots should still be filled");
+            GameTestKit.remove(s);
+            helper.succeed();
+        });
+    }
+
     @GameTest(maxTicks = 60)
     public void snapshotShowsArmorDurabilityAndWarnings(GameTestHelper helper) {
         GameTestKit.Spawned s = arena(helper, "TestGearSnap");

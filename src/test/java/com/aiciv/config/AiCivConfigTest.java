@@ -34,6 +34,19 @@ class AiCivConfigTest {
     }
 
     @Test
+    void toolCatalogDefaultsToGatedAndUnknownValuesAreReported() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"p": {"baseUrl": "http://x"}},
+             "models": {"m": {"provider": "p", "model": "x"}, "n": {"provider": "p", "model": "y", "toolCatalog": "tiny"}},
+             "defaultModel": "m"}""");
+        AiCivConfig c = AiCivConfig.loadOrCreate(file);
+        assertEquals("gated", c.models.get("m").toolCatalog);
+        assertEquals(List.of("model 'n' has unknown toolCatalog 'tiny' (use gated, full or compact)"), c.validate());
+        assertEquals("gated", AiCivConfig.defaults().models.get("groq-llama").toolCatalog);
+    }
+
+    @Test
     void timeoutSecondsLoadsFromFile() throws Exception {
         Path file = dir.resolve("aiciv.json");
         Files.writeString(file, """

@@ -9,7 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ActionExecutorTest {
-    static final class Scripted implements Action {
+    static class Scripted implements Action {
         final String name;
         final Deque<ActionStatus> statuses;
         final int timeout;
@@ -60,6 +60,33 @@ class ActionExecutorTest {
         assertNull(ex.tick(ctx));
         assertEquals("failed: slow: timed out", ex.tick(ctx));
         assertEquals(1, slow.cancels);
+    }
+
+    @Test
+    void dimensionChangeFailsTheAction() {
+        Scripted a = new Scripted("a", 100), b = new Scripted("b", 100, ActionStatus.DONE);
+        ex.replace(List.of(a, b), ctx);
+        assertNull(ex.dimensionChanged(ctx, "the_nether"), "nothing has started yet");
+        assertNull(ex.tick(ctx));
+        assertEquals("failed: a: you went through to the_nether (skipped: b)", ex.dimensionChanged(ctx, "the_nether"));
+        assertEquals(1, a.cancels);
+        assertFalse(ex.busy());
+        assertNull(ex.tick(ctx));
+        assertEquals(0, b.ticked);
+    }
+
+    @Test
+    void portalActionSurvivesDimensionChange() {
+        Scripted portal = new Scripted("portal", 100, ActionStatus.RUNNING, ActionStatus.RUNNING, ActionStatus.DONE) {
+            @Override public boolean survivesDimensionChange() { return true; }
+        };
+        ex.replace(List.of(portal), ctx);
+        assertNull(ex.tick(ctx));
+        assertNull(ex.dimensionChanged(ctx, "the_nether"));
+        assertEquals(0, portal.cancels);
+        assertTrue(ex.busy());
+        assertNull(ex.tick(ctx));
+        assertEquals("finished: portal", ex.tick(ctx));
     }
 
     @Test
