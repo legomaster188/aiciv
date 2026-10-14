@@ -171,6 +171,11 @@ public final class EnterPortalAction implements Action {
     }
 
     private ActionStatus stepIn(AiPlayer p) {
+        // Standing in a portal during the cooldown after a crossing only restarts it: wait beside the portal instead.
+        if (p.isOnPortalCooldown() && !inPortal(p)) {
+            p.stopMoving();
+            return ActionStatus.RUNNING;
+        }
         if (inPortal(p)) {
             p.stopMoving();
             stage = Stage.WAIT;
