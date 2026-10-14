@@ -11,12 +11,13 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ComparatorMode;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
-/** Presses a button, flips a lever, opens or closes a door, trapdoor or gate, or rings a bell. */
+/** Presses a button, flips a lever, opens or closes a door, trapdoor or gate, rings a bell, or tunes a repeater, comparator or daylight detector. */
 public final class UseBlockAction implements Action {
     static final double REACH = 4.0;
-    static final String NOT_ALLOWED = "use_block works on buttons, levers, wooden doors, trapdoors, fence gates and bells; use look_in_chest for chests";
+    static final String NOT_ALLOWED = "use_block works on buttons, levers, wooden doors, trapdoors, fence gates, bells, repeaters, comparators and daylight detectors; use look_in_chest for chests";
 
     private final BlockPos pos;
     private Approach approach;
@@ -52,7 +53,8 @@ public final class UseBlockAction implements Action {
 
     static boolean allowed(BlockState s) {
         return s.is(BlockTags.BUTTONS) || s.is(Blocks.LEVER) || s.is(BlockTags.WOODEN_DOORS) || s.is(BlockTags.WOODEN_TRAPDOORS)
-                || s.is(BlockTags.FENCE_GATES) || s.is(Blocks.BELL);
+                || s.is(BlockTags.FENCE_GATES) || s.is(Blocks.BELL) || s.is(Blocks.REPEATER) || s.is(Blocks.COMPARATOR)
+                || s.is(Blocks.DAYLIGHT_DETECTOR);
     }
 
     private String summary(BlockState before, BlockState after) {
@@ -64,6 +66,9 @@ public final class UseBlockAction implements Action {
             return "flipped " + at + " (now " + (on ? "on" : "off") + ")";
         }
         if (before.is(Blocks.BELL)) return "rang " + at;
+        if (before.is(Blocks.REPEATER)) return "set " + at + " to delay " + after.getValue(BlockStateProperties.DELAY);
+        if (before.is(Blocks.COMPARATOR)) return at + " now " + (after.getValue(BlockStateProperties.MODE_COMPARATOR) == ComparatorMode.SUBTRACT ? "subtract" : "compare");
+        if (before.is(Blocks.DAYLIGHT_DETECTOR)) return at + " now " + (after.getValue(BlockStateProperties.INVERTED) ? "inverted" : "normal");
         boolean wasOpen = before.hasProperty(BlockStateProperties.OPEN) && before.getValue(BlockStateProperties.OPEN);
         return (wasOpen ? "closed " : "opened ") + at;
     }

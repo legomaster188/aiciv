@@ -104,6 +104,30 @@ class BuildPlanTest {
         assertNull(BuildPlan.doorProblem(twoHigh));
     }
 
+    private static String facingOf(String facing, Facing build) throws Exception {
+        Blueprint b = bp("[[\"R\"]]", "{\"R\":\"observer[facing=" + facing + "]\"}");
+        BuildPlan.Cell cell = BuildPlan.of(b, new Pos(0, 0, 0), build).places().get(0);
+        assertEquals("observer", cell.block());
+        return cell.props().get("facing");
+    }
+
+    @Test
+    void relativeFacingsFollowTheBuildFacing() throws Exception {
+        assertEquals("east", facingOf("forward", Facing.EAST));
+        assertEquals("south", facingOf("forward", Facing.SOUTH));
+        assertEquals("west", facingOf("left", Facing.NORTH));
+        assertEquals("east", facingOf("right", Facing.NORTH));
+        assertEquals("north", facingOf("back", Facing.SOUTH));
+        assertEquals("north", facingOf("north", Facing.EAST));
+        assertEquals("up", facingOf("up", Facing.WEST));
+    }
+
+    @Test
+    void materialsIgnoreStates() throws Exception {
+        Blueprint b = bp("[[\"RR\"]]", "{\"R\":\"repeater[delay=3]\"}");
+        assertEquals(Map.of("repeater", 2), BuildPlan.of(b, new Pos(0, 0, 0), Facing.SOUTH).materials(pos -> "air"));
+    }
+
     @Test
     void facingParsesLettersAndWords() {
         assertEquals(Facing.NORTH, Facing.parse("n"));
