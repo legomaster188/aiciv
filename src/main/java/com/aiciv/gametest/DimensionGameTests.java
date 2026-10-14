@@ -325,6 +325,36 @@ public final class DimensionGameTests {
         });
     }
 
+    /**
+     * The only support of the cell is the top of a pillar the bot's eyes are below: its look ray meets the pillar's side
+     * first, and a real bucket would pour beside the pillar, so the pour is refused instead.
+     */
+    @GameTest(maxTicks = 100)
+    public void bucketNeverPoursBesideTheFace(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(4, 1, 3, Blocks.STONE);
+        helper.setBlock(4, 2, 3, Blocks.STONE);
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestDimFace", 1.5, 3.5);
+        AiPlayer p = s.bot().player;
+        p.getInventory().setItem(0, new ItemStack(Items.WATER_BUCKET));
+        helper.runAfterDelay(3, () -> {
+            BlockPos cell = helper.absolutePos(new BlockPos(4, 3, 3));
+            BlockUse.Result poured = Buckets.pour(p, cell, Items.WATER_BUCKET);
+            helper.assertTrue(poured == BlockUse.Result.NOT_VISIBLE, "pour: " + poured);
+            for (int x = 0; x < 8; x++) {
+                for (int y = 1; y <= 4; y++) {
+                    for (int z = 0; z < 8; z++) {
+                        helper.assertTrue(helper.getLevel().getFluidState(helper.absolutePos(new BlockPos(x, y, z))).isEmpty(),
+                                "water was poured at " + x + " " + y + " " + z);
+                    }
+                }
+            }
+            helper.assertTrue(InventoryOps.has(p, Items.WATER_BUCKET, 1), "the bucket was emptied");
+            GameTestKit.remove(s);
+            helper.succeed();
+        });
+    }
+
     @GameTest(maxTicks = 100)
     public void placeAgainstChoosesTheSide(GameTestHelper helper) {
         GameTestKit.floor(helper, 8, Blocks.STONE);

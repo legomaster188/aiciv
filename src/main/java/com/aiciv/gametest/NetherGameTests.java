@@ -29,6 +29,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.material.Fluids;
 
 /** Task 2: portals, the nether, fortresses and blazes. Bot names start with TestNeth. */
 public final class NetherGameTests {
@@ -155,6 +156,48 @@ public final class NetherGameTests {
             helper.assertTrue(events.contains("no complete empty portal frame"), "no failure yet: " + events);
             helper.assertTrue(portalBlocks(helper, bottomLeft) == 0, "a portal appeared");
             helper.assertTrue(bot.player.getInventory().getItem(0).getDamageValue() == 0, "the flint was used");
+            GameTestKit.remove(s);
+        });
+    }
+
+    /** Stopped the tick its first lava lands in the frame, the cast scoops the lava back and leaves no fluid behind. */
+    @GameTest(maxTicks = 2400, padding = 24)
+    public void cancelledCastLeavesNoFluid(GameTestHelper helper) {
+        arena(helper);
+        Pos bottomLeft = new Pos(4, 1, 8);
+        List<Pos> cells = PortalFrame.frameCells(bottomLeft, Facing.SOUTH);
+        long[] stoppedAt = {-1};
+        GameTestKit.Spawned[] holder = new GameTestKit.Spawned[1];
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestNethUndo", 4.5, 4.5, () -> {
+            if (holder[0] == null || stoppedAt[0] >= 0) return;
+            for (Pos c : cells) {
+                if (helper.getLevel().getFluidState(helper.absolutePos(block(c))).isSourceOfType(Fluids.LAVA)) {
+                    holder[0].bot().executor.stop(holder[0].bot().context);
+                    stoppedAt[0] = helper.getTick();
+                    return;
+                }
+            }
+        });
+        holder[0] = s;
+        Bot bot = s.bot();
+        bot.player.getInventory().setItem(0, new ItemStack(Items.WATER_BUCKET));
+        bot.player.getInventory().setItem(1, new ItemStack(Items.LAVA_BUCKET));
+        bot.player.getInventory().setItem(2, new ItemStack(Items.COBBLESTONE, 24));
+        bot.player.getInventory().setItem(3, new ItemStack(Items.STONE_PICKAXE));
+        BlockPos origin = helper.absolutePos(new BlockPos(4, 1, 8));
+        run(bot, "cast_portal", "{\"x\":" + origin.getX() + ",\"y\":" + origin.getY() + ",\"z\":" + origin.getZ() + ",\"facing\":\"S\"}");
+        helper.succeedWhen(() -> {
+            helper.assertTrue(stoppedAt[0] >= 0, "no lava poured yet: " + GameTestKit.events(bot));
+            helper.assertTrue(helper.getTick() >= stoppedAt[0] + 2, "give it a tick");
+            for (int x = -1; x <= 9; x++) {
+                for (int y = 1; y <= 7; y++) {
+                    for (int z = 0; z <= 12; z++) {
+                        helper.assertTrue(!helper.getLevel().getFluidState(helper.absolutePos(new BlockPos(x, y, z))).isSource(),
+                                "a fluid source is left at " + x + " " + y + " " + z);
+                    }
+                }
+            }
+            helper.assertTrue(InventoryOps.has(bot.player, Items.LAVA_BUCKET, 1), "the lava was not scooped back");
             GameTestKit.remove(s);
         });
     }

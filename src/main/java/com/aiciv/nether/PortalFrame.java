@@ -113,12 +113,10 @@ public final class PortalFrame {
         return out;
     }
 
-    /** A throwaway the bot holds at least 20 of, for the wall. */
+    /** A throwaway the bot holds at least 20 of, for the wall; never planks or anything else the lava could set alight. */
     public static String wallBlock(Map<String, Integer> inventory) {
         for (String id : THROWAWAY) if (inventory.getOrDefault(id, 0) >= WALL_BLOCKS) return id;
-        return inventory.entrySet().stream()
-                .filter(e -> e.getKey().endsWith("_planks") && e.getValue() >= WALL_BLOCKS)
-                .map(Map.Entry::getKey).sorted().findFirst().orElse(null);
+        return null;
     }
 
     private static Pos at(Pos bottomLeft, Facing facing, int column, int y) {

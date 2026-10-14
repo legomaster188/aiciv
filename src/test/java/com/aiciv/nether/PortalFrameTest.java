@@ -76,5 +76,8 @@ class PortalFrameTest {
         assertEquals("cobblestone", PortalFrame.wallBlock(Map.of("cobblestone", 20, "dirt", 64)));
         assertEquals("dirt", PortalFrame.wallBlock(Map.of("cobblestone", 19, "dirt", 20)));
         assertNull(PortalFrame.wallBlock(Map.of("cobblestone", 19)));
+        // Lava is poured against the wall: never anything that burns.
+        assertNull(PortalFrame.wallBlock(Map.of("oak_planks", 64, "spruce_planks", 64)));
+        assertEquals("netherrack", PortalFrame.wallBlock(Map.of("oak_planks", 64, "netherrack", 20)));
     }
 }

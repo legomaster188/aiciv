@@ -16,10 +16,13 @@ import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.BlockUse;
 import com.aiciv.world.Buckets;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -104,6 +107,8 @@ public final class CastPortalAction implements Action {
     private ItemGatherer gatherer;
     private LightPortalAction light;
     private String summary;
+    /** Every cell this cast poured a fluid into; on a cancel or failure each one still a source is scooped back. */
+    private final Set<BlockPos> poured = new LinkedHashSet<>();
 
     public CastPortalAction(BlockPos originOrNull, Facing facingOrNull) {
         this.givenOrigin = originOrNull;
@@ -112,6 +117,13 @@ public final class CastPortalAction implements Action {
 
     @Override
     public ActionStatus tick(BotContext ctx) {
+        ActionStatus s = step(ctx);
+        if (s.state() != ActionStatus.State.FAILED) return s;
+        String left = cleanUp(ctx.player());
+        return left == null ? s : ActionStatus.failed(s.reason() + "; " + left);
+    }
+
+    private ActionStatus step(BotContext ctx) {
         AiPlayer p = ctx.player();
         ServerLevel level = p.level();
         if (phase == Phase.START) {
@@ -147,7 +159,7 @@ public final class CastPortalAction implements Action {
         }
         String block = PortalFrame.wallBlock(inventory);
         if (block == null) {
-            return ActionStatus.failed("needs " + PortalFrame.WALL_BLOCKS + " cobblestone, dirt or planks for a wall to pour against (you have "
+            return ActionStatus.failed("needs " + PortalFrame.WALL_BLOCKS + " cobblestone, cobbled_deepslate, dirt or netherrack for a wall to pour against (you have "
                     + InventoryOps.throwawayCount(p) + ")");
         }
         wallBlock = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(block));
@@ -174,6 +186,14 @@ public final class CastPortalAction implements Action {
             BlockPos under = block(s).below();
             if (level.getBlockState(under).getCollisionShape(level, under).isEmpty()) {
                 return ActionStatus.failed("the portal site has no ground under " + LightPortalAction.coords(block(s)));
+            }
+        }
+        PlacedBlocks placed = PlacedBlocks.of(level.getServer());
+        for (BlockPos cell : cells) {
+            Optional<BlockPos> near = placed.placedByOtherNear(level, cell, PlacedBlocks.LAVA_KEEP_AWAY, p.getScoreboardName(), s -> true);
+            if (near.isPresent()) {
+                return ActionStatus.failed("won't pour lava at " + LightPortalAction.coords(cell) + ": " + placed.describe(level, near.get())
+                        + " is within " + PlacedBlocks.LAVA_KEEP_AWAY + " blocks");
             }
         }
         if (!lava) {
@@ -303,18 +323,19 @@ public final class CastPortalAction implements Action {
     }
 
     private ActionStatus toLavaPour(AiPlayer p, BlockPos cell) {
-        return toSpot(p, cell, eyes -> BucketPour.canPourFrom(p, eyes, cell), Phase.CELL_SPOT, Phase.POUR_LAVA);
+        return toSpot(p, cell, eyes -> Buckets.canPourFrom(p, eyes, cell), Phase.CELL_SPOT, Phase.POUR_LAVA);
     }
 
     private ActionStatus pourLava(AiPlayer p) {
         BlockPos cell = cells.get(index);
-        BlockUse.Result r = BucketPour.pour(p, cell, Items.LAVA_BUCKET);
+        BlockUse.Result r = Buckets.pour(p, cell, Items.LAVA_BUCKET);
+        if (p.level().getFluidState(cell).isSourceOfType(Fluids.LAVA)) poured.add(cell);
         if (r == BlockUse.Result.USED) {
             tries = 0;
             phase = Phase.POUR_WATER;
             return ActionStatus.RUNNING;
         }
-        if (r == BlockUse.Result.NO_EFFECT) return ActionStatus.failed("could not pour lava at " + LightPortalAction.coords(cell));
+        // NO_EFFECT is a pour that missed (a bad angle), like one out of reach: try again from another spot.
         if (++tries >= MAX_TRIES) return ActionStatus.failed("could not pour lava at " + LightPortalAction.coords(cell) + " (" + r + ")");
         badSpots.add(p.blockPosition());
         return toLavaPour(p, cell);
@@ -334,7 +355,9 @@ public final class CastPortalAction implements Action {
         BlockPos cell = cells.get(index);
         List<BlockPos> candidates = waterCells(level, cell);
         for (BlockPos at : candidates) {
-            if (BucketPour.pour(p, at, Items.WATER_BUCKET) == BlockUse.Result.USED) {
+            BlockUse.Result r = Buckets.pour(p, at, Items.WATER_BUCKET);
+            if (level.getFluidState(at).isSourceOfType(Fluids.WATER)) poured.add(at);
+            if (r == BlockUse.Result.USED) {
                 waterAt = at;
                 settle = 0;
                 tries = 0;
@@ -344,7 +367,7 @@ public final class CastPortalAction implements Action {
         }
         if (++tries >= MAX_TRIES) return ActionStatus.failed("could not pour water onto the lava at " + LightPortalAction.coords(cell));
         badSpots.add(p.blockPosition());
-        return toSpot(p, cell, eyes -> candidates.stream().anyMatch(c -> BucketPour.canPourFrom(p, eyes, c)), Phase.WATER_SPOT, Phase.POUR_WATER);
+        return toSpot(p, cell, eyes -> candidates.stream().anyMatch(c -> Buckets.canPourFrom(p, eyes, c)), Phase.WATER_SPOT, Phase.POUR_WATER);
     }
 
     private ActionStatus takeWater(AiPlayer p, ServerLevel level) {
@@ -360,16 +383,44 @@ public final class CastPortalAction implements Action {
             }
             return ActionStatus.RUNNING;
         }
+        poured.remove(cell); // obsidian now
         BlockUse.Result r = Buckets.fill(p, waterAt);
-        if (r == BlockUse.Result.OUT_OF_REACH || r == BlockUse.Result.NOT_VISIBLE) {
+        if (r != BlockUse.Result.USED && level.getFluidState(waterAt).isSource()) {
             if (++tries >= MAX_TRIES) return ActionStatus.failed("could not take the water back from " + LightPortalAction.coords(waterAt) + " (" + r + ")");
             badSpots.add(p.blockPosition());
             BlockPos water = waterAt;
             return toSpot(p, water, eyes -> canFillFrom(p, eyes, water), Phase.TAKE_SPOT, Phase.TAKE_WATER);
         }
+        poured.remove(waterAt);
+        tries = 0;
         index++;
         phase = Phase.NEXT;
         return ActionStatus.RUNNING;
+    }
+
+    /**
+     * Scoops back, from where the bot stands, every poured cell that is still a source: lava that has not turned to
+     * obsidian and water. Null when none is left; otherwise what stays and why, for the failure text.
+     */
+    private String cleanUp(AiPlayer p) {
+        if (p == null || poured.isEmpty()) return null;
+        ServerLevel level = p.level();
+        List<String> left = new ArrayList<>();
+        for (BlockPos cell : List.copyOf(poured)) {
+            boolean lava = level.getFluidState(cell).isSourceOfType(Fluids.LAVA);
+            if (!lava && !level.getFluidState(cell).isSourceOfType(Fluids.WATER)) {
+                poured.remove(cell);
+                continue;
+            }
+            BlockUse.Result r = InventoryOps.has(p, Items.BUCKET, 1) ? Buckets.fill(p, cell) : null;
+            if (r == BlockUse.Result.USED) {
+                poured.remove(cell);
+            } else {
+                left.add((lava ? "lava" : "water") + " at " + LightPortalAction.coords(cell)
+                        + (r == null ? " (no empty bucket to scoop it)" : " (" + r.name().toLowerCase(Locale.ROOT).replace('_', ' ') + ")"));
+            }
+        }
+        return left.isEmpty() ? null : "left " + String.join(", ", left);
     }
 
     /** The bucket own test: a source within reach that is the first one on the ray from the eyes to its centre. */
@@ -565,6 +616,7 @@ public final class CastPortalAction implements Action {
 
     @Override
     public void cancel(BotContext ctx) {
+        cleanUp(ctx.player());
         if (approach != null) approach.cancel(ctx);
         if (breaking) ctx.breaker().cancel();
         if (wall != null && phase == Phase.WALL) wall.cancel(ctx);

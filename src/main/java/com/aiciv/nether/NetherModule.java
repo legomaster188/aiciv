@@ -46,7 +46,7 @@ public final class NetherModule implements ToolModule {
         return List.of(
                 Tools.fn("build_portal", "Build a nether portal frame from 10 obsidian (14 with obsidian corners) and light it if you hold flint_and_steel or a fire_charge.",
                         position(facing()), new String[0]),
-                Tools.fn("cast_portal", "Cast a portal frame with a water_bucket and lava (a lava_bucket, or an empty bucket and lava in sight) against a temporary wall of 20 cobblestone, dirt or planks, then light it.",
+                Tools.fn("cast_portal", "Cast a portal frame with a water_bucket and lava (a lava_bucket, or an empty bucket and lava in sight) against a temporary wall of 20 cobblestone, dirt or netherrack, then light it.",
                         position(facing()), new String[0]),
                 Tools.fn("light_portal", "Light a complete empty obsidian portal frame with flint_and_steel or a fire_charge.", position(null)),
                 Tools.fn("go_to_nether", "Go through a nether portal: one you see or remember, a frame to light, or a new one built from obsidian.", null),
