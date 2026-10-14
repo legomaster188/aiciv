@@ -4,11 +4,13 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.Compass;
@@ -135,6 +137,17 @@ public final class AnimalsModule implements ToolModule {
     private static ActionFactory.Result invalid(String reason) {
         return new ActionFactory.Result.Invalid(reason);
     }
+
+    /** When an animal is in view, or the bot has pets or leads one. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.seesMob(snap, ANIMALS::contains, Integer.MAX_VALUE)
+                || Situation.tagged(snap, t -> t.equals(LEADING) || t.startsWith(PET_PREFIX) || t.startsWith(TAMEABLE_PREFIX));
+    }
+
+    private static final Set<String> ANIMALS = Set.of("wolf", "cat", "ocelot", "parrot", "horse", "donkey", "mule", "llama",
+            "trader_llama", "camel", "pig", "strider", "cow", "mooshroom", "goat", "sheep", "chicken", "rabbit", "fox", "snow_golem",
+            "frog", "axolotl", "turtle", "bee", "panda", "polar_bear", "armadillo", "sniffer", "happy_ghast", "nautilus");
 
     @Override
     public List<String> guideLines() {

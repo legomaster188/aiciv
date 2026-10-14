@@ -47,6 +47,10 @@ final class BrainScheduler {
     private final BotManager m;
     /** When each bot first could not dispatch; cleared once it does. */
     private final Map<String, Long> waitingSince = new HashMap<>();
+    /** Bots whose request a provider refused as too large: they get the compact catalog from then on. */
+    private final Set<String> compact = new HashSet<>();
+    /** Bots already logged as too large even with the compact catalog, so that is said once. */
+    private final Set<String> tooLargeEvenCompact = new HashSet<>();
 
     BrainScheduler(BotManager m) {
         this.m = m;
@@ -113,10 +117,13 @@ final class BrainScheduler {
                 b.attachments);
         String snapshot = SnapshotFormatter.format(data, SnapshotFormatter.MAX_CHARS);
         if (m.llm().menuMode(b.brain.modelKey())) return thinkMenu(b, ticket, now, data, snapshot);
+        boolean small = compact.contains(b.name);
+        ToolCatalog.Mode configured = small ? ToolCatalog.Mode.COMPACT : m.llm().toolCatalog(b.brain.modelKey());
         String system = PromptBuilder.system(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b),
-                m.config().maxActionsPerDecision, ToolCatalog.guide());
+                m.config().maxActionsPerDecision, ToolCatalog.guide(configured, data, b.context));
         String user = PromptBuilder.user(List.of(), b.brain.events().lines(), snapshot);
-        Optional<CompletableFuture<LlmService.Outcome>> sent = m.llm().trySend(b.brain.modelKey(), system, user, ToolCatalog.tools());
+        Optional<CompletableFuture<LlmService.Outcome>> sent = m.llm().trySend(b.brain.modelKey(), system, user,
+                mode -> ToolCatalog.tools(small ? ToolCatalog.Mode.COMPACT : mode, data, b.context));
         if (sent.isEmpty()) {
             m.queue().offer(b.name, ticket.reason(), ticket.since());
             return false;
@@ -246,6 +253,14 @@ final class BrainScheduler {
             return;
         }
 
+        if (err == null && outcome instanceof LlmService.Outcome.TooLarge large) {
+            tooLarge(b, large);
+            log.addProperty("error", large.reason());
+            b.brain.failed(ticket.reason()); // asks again, now with the compact catalog
+            m.decisionLog().append(b.name, log);
+            return;
+        }
+
         if (err != null || !(outcome instanceof LlmService.Outcome.Reply reply)) {
             String why = err != null ? String.valueOf(err)
                     : outcome instanceof LlmService.Outcome.Failed f ? f.reason() : "rate limited";
@@ -263,6 +278,18 @@ final class BrainScheduler {
         if (reply.reply().finishReason() != null) log.addProperty("finish_reason", reply.reply().finishReason());
         if (reply.reply().usage() != null) log.add("usage", reply.reply().usage());
         runCalls(b, log, reply.reply().calls(), reply.reply().plainText(), reply.reply().finishReason());
+    }
+
+    /** Switches the bot to the compact catalog, logging the first refusal (and a compact one) once. */
+    private void tooLarge(Bot b, LlmService.Outcome.TooLarge large) {
+        String provider = large.route().providerKey();
+        if (compact.add(b.name)) {
+            AiCiv.LOG.warn("AiCiv: {}'s request was too large for {} ({}); retrying with the compact tool catalog", b.name, provider,
+                    large.reason());
+        } else if (tooLargeEvenCompact.add(b.name)) {
+            AiCiv.LOG.warn("AiCiv: {}'s request is too large for {} even with the compact tool catalog ({}); give the model a "
+                    + "provider with a larger per-request token limit", b.name, provider, large.reason());
+        }
     }
 
     /** Menu mode: runs the chosen option's call chain, or notes that the model named something the menu never offered. */

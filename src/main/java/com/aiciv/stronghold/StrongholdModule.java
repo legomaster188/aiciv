@@ -3,6 +3,7 @@ package com.aiciv.stronghold;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
@@ -10,6 +11,7 @@ import com.aiciv.dimension.Portals;
 import com.aiciv.dimension.Waypoints;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.nav.Pos;
@@ -23,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.Blocks;
 
@@ -71,6 +74,16 @@ public final class StrongholdModule implements ToolModule {
     private static ActionFactory.Result ok(com.aiciv.actions.Action action) {
         return new ActionFactory.Result.Ok(action);
     }
+
+    /** With eye makings in hand, an end portal frame in sight, or a stronghold already being tracked down. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.carriesAny(snap, EYE_ITEMS) || Situation.sees(snap, "end_portal_frame"::equals, Integer.MAX_VALUE)
+                || Situation.tagged(snap, t -> t.startsWith(EYE_READINGS) || t.equals(STRONGHOLD_KNOWN) || t.equals(PORTAL_ROOM_KNOWN)
+                        || t.equals(END_PORTAL_OPEN));
+    }
+
+    private static final Set<String> EYE_ITEMS = Set.of("ender_pearl", "ender_eye", "blaze_rod", "blaze_powder");
 
     @Override
     public List<String> guideLines() {

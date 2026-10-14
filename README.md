@@ -195,9 +195,22 @@ one is done; a failed step ends the routine with that step's reason.
 
 ### Tool-catalog size
 
-In tool mode every request carries the whole function catalog: 95 functions, 34,578 characters of JSON (about 8,600 to
-11,500 tokens, measured by `CatalogSizeTest`, which fails above 60,000 characters). Menu mode does not send it. If a
-provider's token limit bites, a later milestone can send only the modules that fit the bot's situation.
+In tool mode every request carries a function catalog; menu mode does not send one. Each model's `toolCatalog` picks how
+much of it:
+
+- `"gated"` (the default): the core and milestone 1-3 tools always, and each milestone 4 module only when it fits the
+  bot's situation (dragon tools only in the End; nether tools in the nether or with obsidian, flint and steel, a fire
+  charge or a bucket of lava or water, or a nether portal in sight; stronghold tools with ender pearls, eyes, blaze rods
+  or powder or an end portal frame in sight; vehicles while riding, near a mount, boat or minecart, or carrying a boat,
+  minecart or saddle; flight with an elytra or pearls; stations near a station block; animals with an animal in view;
+  items when carrying a bucket, bone meal, shears, a potion, a throwable, a map or a compass). A typical overworld bot
+  gets 46 functions, about 19,200 characters.
+- `"full"`: all 95 functions, 34,578 characters (about 8,600 to 11,500 tokens).
+- `"compact"`: gated, without the parameter descriptions (about 13,100 characters for the same overworld bot).
+
+A provider that refuses a request as too large (HTTP 413, or Groq's "Request too large ... tokens per minute") does not
+count against its health: the bot logs it once and asks again at once with the compact catalog, which it keeps from then
+on. `CatalogSizeTest` measures these sizes.
 
 ### Testing sleep
 

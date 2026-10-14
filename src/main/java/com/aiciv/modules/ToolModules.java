@@ -4,6 +4,7 @@ import com.aiciv.AiCiv;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.animals.AnimalsModule;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
@@ -63,6 +64,35 @@ public final class ToolModules {
     public static List<JsonObject> tools() {
         List<JsonObject> out = new ArrayList<>();
         for (ToolModule m : ALL) out.addAll(m.tools());
+        return out;
+    }
+
+    /** The catalog functions of the modules {@link ToolModule#relevant} for this snapshot; a module that throws is kept. */
+    public static List<JsonObject> tools(SnapshotData snap, BotContext ctx) {
+        List<JsonObject> out = new ArrayList<>();
+        for (ToolModule m : relevant(snap, ctx)) out.addAll(m.tools());
+        return out;
+    }
+
+    /** The guide lines of the modules relevant for this snapshot. */
+    public static List<String> guideLines(SnapshotData snap, BotContext ctx) {
+        List<String> out = new ArrayList<>();
+        for (ToolModule m : relevant(snap, ctx)) out.addAll(m.guideLines());
+        return out;
+    }
+
+    static List<ToolModule> relevant(SnapshotData snap, BotContext ctx) {
+        List<ToolModule> out = new ArrayList<>();
+        for (ToolModule m : ALL) {
+            boolean keep;
+            try {
+                keep = m.relevant(snap, ctx);
+            } catch (RuntimeException e) {
+                warn(m, "relevance", e);
+                keep = true;
+            }
+            if (keep) out.add(m);
+        }
         return out;
     }
 

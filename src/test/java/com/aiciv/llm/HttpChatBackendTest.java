@@ -92,6 +92,25 @@ class HttpChatBackendTest {
     }
 
     @Test
+    void http413IsTooLargeNotAFailure() throws Exception {
+        status = 413;
+        body = "{\"error\": {\"message\": \"Request Entity Too Large\"}}";
+        BackendResult.TooLarge r = assertInstanceOf(BackendResult.TooLarge.class, call("k", Duration.ofSeconds(5)));
+        assertTrue(r.reason().startsWith("request too large: HTTP 413"), r.reason());
+    }
+
+    @Test
+    void groqPerRequestTokenLimitIsTooLargeEvenAs429() throws Exception {
+        status = 429;
+        body = "{\"error\": {\"message\": \"Request too large for model `llama-3.3-70b-versatile` in organization `org` service tier "
+                + "`on_demand` on tokens per minute (TPM): Limit 6000, Requested 9512, please reduce your message size and try again.\"}}";
+        assertInstanceOf(BackendResult.TooLarge.class, call("k", Duration.ofSeconds(5)));
+        // An ordinary per-minute limit is still a rate limit to wait out.
+        body = "{\"error\": {\"message\": \"Rate limit reached for model on tokens per minute (TPM): Limit 6000, Used 5000, Requested 2000.\"}}";
+        assertInstanceOf(BackendResult.RateLimited.class, call("k", Duration.ofSeconds(5)));
+    }
+
+    @Test
     void rateLimitWithoutRetryAfter() throws Exception {
         status = 429;
         assertEquals(new BackendResult.RateLimited(null), call("k", Duration.ofSeconds(5)));

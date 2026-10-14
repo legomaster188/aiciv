@@ -4,11 +4,13 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.Sighting;
@@ -167,6 +169,15 @@ public final class ItemsModule implements ToolModule {
     private static ActionFactory.Result invalid(String reason) {
         return new ActionFactory.Result.Invalid(reason);
     }
+
+    /** When the bot carries an item one of these tools uses. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.carries(snap, id -> USED_ITEMS.contains(id) || id.endsWith("bucket") || id.endsWith("potion") || id.endsWith("egg"));
+    }
+
+    private static final Set<String> USED_ITEMS = Set.of("bone_meal", "shears", "honey_bottle", "snowball", "experience_bottle", "map",
+            "filled_map", "compass", "flint_and_steel", "fire_charge");
 
     @Override
     public List<String> guideLines() {

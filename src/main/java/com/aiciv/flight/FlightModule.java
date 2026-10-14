@@ -3,12 +3,14 @@ package com.aiciv.flight;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.gear.GearReport;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.SnapshotData;
@@ -79,6 +81,12 @@ public final class FlightModule implements ToolModule {
             if (Args.integer(args, n) == null) return tool + " needs a whole number \"" + n + "\"";
         }
         return null;
+    }
+
+    /** With an elytra worn or carried, or ender pearls to throw. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.carries(snap, id -> id.equals("elytra") || id.equals("ender_pearl"));
     }
 
     @Override

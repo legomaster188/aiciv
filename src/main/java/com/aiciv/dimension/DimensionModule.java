@@ -3,11 +3,13 @@ package com.aiciv.dimension;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.nav.Pos;
@@ -46,6 +48,13 @@ public final class DimensionModule implements ToolModule {
         if (kind.isEmpty()) kind = "any";
         if (!KINDS.contains(kind)) return new ActionFactory.Result.Invalid("kind must be nether, end or any");
         return new ActionFactory.Result.Ok(new EnterPortalAction(kind));
+    }
+
+    /** Portals matter outside the overworld, or when one is in sight. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return !Situation.dimension(snap).equals("overworld")
+                || Situation.sees(snap, l -> l.equals("nether_portal") || l.equals("end_portal") || l.equals("end_gateway"), Integer.MAX_VALUE);
     }
 
     @Override

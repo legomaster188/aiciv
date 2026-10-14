@@ -4,12 +4,14 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.dimension.Portals;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.Compass;
@@ -65,6 +67,12 @@ public final class DragonModule implements ToolModule {
 
     private static ActionFactory.Result ok(Action action) {
         return new ActionFactory.Result.Ok(action);
+    }
+
+    /** Only in the End. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.dimension(snap).equals("the_end");
     }
 
     @Override

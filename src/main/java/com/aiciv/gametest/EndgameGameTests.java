@@ -6,13 +6,23 @@ import static com.aiciv.gametest.GameTestKit.turn;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotManager;
 import com.aiciv.dimension.Waypoints;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.llm.BackendResult;
+import com.aiciv.llm.ChatBackend;
+import com.aiciv.llm.LlmService;
 import com.aiciv.llm.ScriptedBackend;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.ToolModules;
 import com.aiciv.nav.Pos;
+import com.google.gson.JsonObject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -34,6 +44,42 @@ public final class EndgameGameTests {
             helper.assertTrue(names.contains(name), name + " module missing");
         }
         helper.succeed();
+    }
+
+    /**
+     * A provider that refuses the first request as too large: the bot asks again at once with the compact catalog
+     * (no parameter descriptions), and its first request was already gated (no dragon tools in the overworld).
+     */
+    @GameTest(maxTicks = 200)
+    public void tooLargeRequestIsRetriedCompact(GameTestHelper helper) throws Exception {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        ScriptedBackend script = new ScriptedBackend(List.of(turn("say", "{\"text\":\"small enough\"}")));
+        List<JsonObject> bodies = new CopyOnWriteArrayList<>();
+        ChatBackend backend = body -> {
+            bodies.add(body.deepCopy());
+            return bodies.size() == 1
+                    ? CompletableFuture.completedFuture(new BackendResult.TooLarge("request too large: HTTP 413: too big"))
+                    : script.send(body);
+        };
+        Path dir = Files.createTempDirectory("aiciv-gametest");
+        AiCivConfig config = AiCivGameTests.scriptedConfig();
+        BotManager manager = new BotManager(helper.getLevel().getServer(), config,
+                new LlmService(config, Map.of("scripted", backend), Clock.systemUTC()),
+                dir.resolve("roster.json"), new DecisionLog(dir.resolve("logs")), Clock.systemUTC());
+        Bot bot = manager.spawn("TestEndCompact", "scripted", "", helper.getLevel(), helper.absoluteVec(new Vec3(3.5, 1, 3.5)));
+        helper.onEachTick(() -> {
+            manager.tickStart();
+            manager.tickEnd();
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(bodies.size() >= 2, "only " + bodies.size() + " request(s)");
+            String first = bodies.get(0).getAsJsonArray("tools").toString(), second = bodies.get(1).getAsJsonArray("tools").toString();
+            helper.assertTrue(!first.contains("fight_dragon") && first.contains("\"description\":\"Block x"), "first request: not gated");
+            helper.assertTrue(second.contains("\"name\":\"goTo\"") && !second.contains("\"description\":\"Block x"), "second request: not compact");
+            helper.assertTrue(GameTestKit.events(bot).contains("small enough") || bot.brain.lastDecision().contains("say"),
+                    "the retry did not act: " + GameTestKit.events(bot) + " / " + bot.brain.lastDecision());
+            GameTestKit.remove(new GameTestKit.Spawned(manager, bot));
+        });
     }
 
     /** A scripted bot builds and lights a nether portal, goes through, and comes back through the portal it arrived by. */

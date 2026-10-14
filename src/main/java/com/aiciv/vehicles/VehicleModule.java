@@ -4,11 +4,13 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.Compass;
@@ -111,6 +113,13 @@ public final class VehicleModule implements ToolModule {
 
     private static ActionFactory.Result invalid(String reason) {
         return new ActionFactory.Result.Invalid(reason);
+    }
+
+    /** While riding, with a mount, boat or minecart within 16 blocks, or carrying a boat, minecart or saddle. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.tagged(snap, t -> t.equals(RIDING) || t.startsWith(RIDEABLE))
+                || Situation.carries(snap, id -> id.endsWith("_boat") || id.endsWith("_raft") || id.equals("minecart") || id.equals("saddle"));
     }
 
     @Override

@@ -2,10 +2,12 @@ package com.aiciv.stations;
 
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
+import com.aiciv.actions.BotContext;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.perception.Sighting;
@@ -14,6 +16,7 @@ import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.component.WritableBookContent;
 import net.minecraft.world.item.component.WrittenBookContent;
@@ -144,6 +147,15 @@ public final class StationsModule implements ToolModule {
     private static ActionFactory.Result ok(com.aiciv.actions.Action action) {
         return new ActionFactory.Result.Ok(action);
     }
+
+    /** With a station block within 16 blocks or in the inventory, or a book and quill to write in. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        return Situation.sees(snap, STATIONS::contains, SIGHT_RADIUS) || Situation.carriesAny(snap, STATIONS)
+                || Situation.carries(snap, "writable_book"::equals);
+    }
+
+    private static final Set<String> STATIONS = Set.of("smithing_table", "stonecutter", "grindstone", "loom", "cartography_table");
 
     @Override
     public List<String> guideLines() {

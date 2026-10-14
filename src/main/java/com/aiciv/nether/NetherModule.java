@@ -3,6 +3,7 @@ package com.aiciv.nether;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.Args;
 import com.aiciv.actions.Attachments;
+import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
@@ -11,6 +12,7 @@ import com.aiciv.dimension.Portals;
 import com.aiciv.dimension.Waypoints;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.Samples;
+import com.aiciv.modules.Situation;
 import com.aiciv.modules.ToolModule;
 import com.aiciv.modules.Tools;
 import com.aiciv.nav.Pos;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
@@ -130,6 +133,17 @@ public final class NetherModule implements ToolModule {
         }
         return ok(new FindFortressAction(direction, Args.intIn(a, "distance", 384, 64, 1024)));
     }
+
+    /** In the nether, or (outside the End) with portal makings in hand or a nether portal in sight. */
+    @Override
+    public boolean relevant(SnapshotData snap, BotContext ctx) {
+        String dimension = Situation.dimension(snap);
+        if (dimension.equals("the_nether")) return true;
+        if (dimension.equals("the_end")) return false;
+        return Situation.carriesAny(snap, PORTAL_ITEMS) || Situation.sees(snap, "nether_portal"::equals, Integer.MAX_VALUE);
+    }
+
+    private static final Set<String> PORTAL_ITEMS = Set.of("obsidian", "flint_and_steel", "fire_charge", "lava_bucket", "water_bucket");
 
     @Override
     public List<String> guideLines() {
