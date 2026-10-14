@@ -1,6 +1,8 @@
 package com.aiciv;
 
+import com.aiciv.autopilot.personality.Personalities;
 import com.aiciv.bot.AiCommands;
+import com.aiciv.bot.AiPlayer;
 import com.aiciv.bot.BotManager;
 import com.aiciv.brain.DecisionLog;
 import com.aiciv.config.AiCivConfig;
@@ -12,6 +14,7 @@ import com.aiciv.world.PlacedBlocks;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -19,6 +22,7 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
@@ -76,6 +80,11 @@ public final class AiCiv implements ModInitializer {
             BotManager m = manager;
             if (m != null) m.onDamage(entity, source, damageTaken);
         });
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, s) -> {
+            BotManager m = manager;
+            // Bots are announced by BotManager.join, once they are set up.
+            if (m != null && !(handler.player instanceof AiPlayer)) m.onJoin(handler.player);
+        });
         ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
             BotManager m = manager;
             if (m != null) m.onDeath(entity, source);
@@ -98,18 +107,18 @@ public final class AiCiv implements ModInitializer {
             return start(s);
         }
         Loaded l = loadServices();
-        m.reload(l.config(), l.llm());
-        return l.config().validate();
+        m.reload(l.config(), l.llm(), l.personalities());
+        return l.problems();
     }
 
     private static List<String> start(MinecraftServer server) throws IOException {
         Loaded l = loadServices();
         Path roster = server.getWorldPath(LevelResource.ROOT).resolve("aiciv").resolve("roster.json");
         DecisionLog log = new DecisionLog(FabricLoader.getInstance().getGameDir().resolve("logs").resolve("aiciv"));
-        manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC());
+        manager = new BotManager(server, l.config(), l.llm(), roster, log, Clock.systemUTC(), l.personalities());
         manager.restoreAll();
         startPanel(server, l.config());
-        return l.config().validate();
+        return l.problems();
     }
 
     /** The running admin panel, or null when it is disabled or could not bind its port. */
@@ -137,16 +146,21 @@ public final class AiCiv implements ModInitializer {
         if (m != null) m.shutdown();
     }
 
-    private record Loaded(AiCivConfig config, LlmService llm) {}
+    /** {@code problems}: aiciv.json problems, then personalities.json problems. */
+    private record Loaded(AiCivConfig config, LlmService llm, Personalities personalities, List<String> problems) {}
 
     private static Loaded loadServices() throws IOException {
         AiCivConfig config = AiCivConfig.loadOrCreate(configDir.resolve("aiciv.json"));
-        for (String problem : config.validate()) LOG.warn("aiciv.json: {}", problem);
+        Personalities personalities = Personalities.load(configDir);
+        List<String> problems = new ArrayList<>(config.validate(personalities.ids()));
+        for (String problem : problems) LOG.warn("aiciv.json: {}", problem);
+        for (String problem : personalities.problems()) LOG.warn("AiCiv {}", problem);
+        problems.addAll(personalities.problems());
         KeyStore keys = KeyStore.load(configDir.resolve("keys.json"), System::getenv);
         LlmService llm = LlmService.create(config, keys, configDir, Clock.systemUTC());
         for (String provider : config.providers.keySet()) {
             if (llm.providerDisabled(provider)) LOG.warn("AiCiv provider {} is {}", provider, llm.providerStatus(provider));
         }
-        return new Loaded(config, llm);
+        return new Loaded(config, llm, personalities, problems);
     }
 }

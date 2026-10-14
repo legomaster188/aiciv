@@ -105,6 +105,66 @@ public final class MenuOps {
         return moved;
     }
 
+    /**
+     * Puts up to {@code count} matching items from the inventory into menu slot {@code slot}: picks up a matching stack,
+     * left-clicks it in when all of it should go, else right-clicks one item at a time, and puts the rest back. Never
+     * swaps out what the slot holds. Returns how many moved; nothing is left on the cursor.
+     */
+    public static int putInto(AiPlayer p, AbstractContainerMenu menu, Predicate<ItemStack> match, int slot, int count) {
+        returnCarried(p, menu);
+        Slot target = menu.getSlot(slot);
+        int moved = 0;
+        while (moved < count) {
+            Slot from = null;
+            for (Slot s : menu.slots) {
+                if (s.index != slot && s.container == p.getInventory() && !s.getItem().isEmpty() && match.test(s.getItem())) {
+                    from = s;
+                    break;
+                }
+            }
+            if (from == null) break;
+            ItemStack in = target.getItem();
+            if (!target.mayPlace(from.getItem()) || (!in.isEmpty() && !ItemStack.isSameItemSameComponents(in, from.getItem()))) break;
+            menu.clicked(from.index, PRIMARY, ContainerInput.PICKUP, p);
+            int carried = menu.getCarried().getCount();
+            int want = count - moved;
+            boolean progress;
+            if (want >= carried) {
+                menu.clicked(slot, PRIMARY, ContainerInput.PICKUP, p);
+                int placed = carried - menu.getCarried().getCount();
+                moved += placed;
+                progress = placed == carried; // a full slot left some on the cursor: no point in another stack
+            } else {
+                int placed = 0;
+                while (placed < want && !menu.getCarried().isEmpty()) {
+                    int before = menu.getCarried().getCount();
+                    menu.clicked(slot, SECONDARY, ContainerInput.PICKUP, p);
+                    if (menu.getCarried().getCount() >= before) break; // the slot refused it
+                    placed += before - menu.getCarried().getCount();
+                }
+                moved += placed;
+                progress = placed == want;
+            }
+            if (!menu.getCarried().isEmpty()) menu.clicked(from.index, PRIMARY, ContainerInput.PICKUP, p);
+            returnCarried(p, menu);
+            if (!progress) break;
+        }
+        return moved;
+    }
+
+    /**
+     * Takes what a result slot (anvil, smithing table, loom...) shows with one click, which runs the menu's own taking
+     * (it uses up the inputs), and puts it in the inventory. Returns a copy of what was taken; EMPTY when nothing was.
+     */
+    public static ItemStack takeResult(AiPlayer p, AbstractContainerMenu menu, int slot) {
+        returnCarried(p, menu);
+        if (menu.getSlot(slot).getItem().isEmpty()) return ItemStack.EMPTY;
+        menu.clicked(slot, PRIMARY, ContainerInput.PICKUP, p);
+        ItemStack taken = menu.getCarried().copy();
+        returnCarried(p, menu);
+        return taken;
+    }
+
     /** A target already holding this item with room, else an empty one that may hold it; null when none. */
     private static Slot accepting(List<Slot> targets, ItemStack carried) {
         Slot empty = null;

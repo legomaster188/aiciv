@@ -14,7 +14,12 @@ import java.util.function.Predicate;
 
 /** A blueprint laid onto world coordinates. Pure: knows nothing of the world beyond what callers pass in. */
 public final class BuildPlan {
-    public record Cell(Pos pos, String block) {}
+    /** {@code props} are block states with relative facings already resolved to absolute directions. */
+    public record Cell(Pos pos, String block, Map<String, String> props) {
+        public Cell(Pos pos, String block) {
+            this(pos, block, Map.of());
+        }
+    }
 
     private static final int[][] STEPS = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
@@ -45,12 +50,29 @@ public final class BuildPlan {
                     if (block == null) continue;
                     // The cell above a door's lower half is the door's own upper half, placed together with it.
                     if (isDoor(block) && y > 0 && bp.cells()[y - 1][row][col] == symbol) continue;
-                    places.add(new Cell(p, block));
+                    places.add(new Cell(p, block, resolve(bp.states().getOrDefault(symbol, Map.of()), f)));
                 }
             }
         }
         this.min = new Pos(minX, minY, minZ);
         this.max = new Pos(maxX, maxY, maxZ);
+    }
+
+    /** forward/back/left/right (relative to the way the builder faces) become north/east/south/west. */
+    private static Map<String, String> resolve(Map<String, String> props, Facing f) {
+        String facing = props.get("facing");
+        if (facing == null) return props;
+        int dx, dz;
+        switch (facing) {
+            case "forward" -> { dx = f.forwardX(); dz = f.forwardZ(); }
+            case "back" -> { dx = -f.forwardX(); dz = -f.forwardZ(); }
+            case "right" -> { dx = f.rightX(); dz = f.rightZ(); }
+            case "left" -> { dx = -f.rightX(); dz = -f.rightZ(); }
+            default -> { return props; }
+        }
+        Map<String, String> out = new LinkedHashMap<>(props);
+        out.put("facing", dx > 0 ? "east" : dx < 0 ? "west" : dz > 0 ? "south" : "north");
+        return out;
     }
 
     public static BuildPlan of(Blueprint bp, Pos origin, Facing facing) {

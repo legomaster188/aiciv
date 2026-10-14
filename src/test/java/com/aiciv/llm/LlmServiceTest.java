@@ -2,6 +2,7 @@ package com.aiciv.llm;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.aiciv.actions.ToolCatalog;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.config.KeyStore;
 import com.aiciv.testutil.MutableClock;
@@ -77,6 +78,34 @@ class LlmServiceTest {
         assertEquals(1000, body.get("max_tokens").getAsInt());
         assertEquals("auto", body.get("tool_choice").getAsString());
         assertEquals("sys", body.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString());
+    }
+
+    @Test
+    void tooLargeIsItsOwnOutcomeAndLeavesTheProviderHealthy() throws Exception {
+        FakeBackend a = new FakeBackend(), b = new FakeBackend();
+        for (int i = 0; i < 4; i++) a.results.add(new BackendResult.TooLarge("request too large: HTTP 413"));
+        LlmService s = new LlmService(config(0), Map.of("a", a, "b", b), clock);
+        for (int i = 0; i < 4; i++) {
+            LlmService.Outcome.TooLarge t = assertInstanceOf(LlmService.Outcome.TooLarge.class, send(s, "ma"));
+            assertEquals("a", t.route().providerKey());
+        }
+        assertTrue(s.providerAvailable("a"));
+        assertEquals("a", s.peek("ma").orElseThrow().providerKey());
+    }
+
+    @Test
+    void toolsAreBuiltForTheSendingModelsCatalogMode() throws Exception {
+        AiCivConfig c = config(0);
+        c.models.get("ma").toolCatalog = "compact";
+        FakeBackend a = new FakeBackend(), b = new FakeBackend();
+        LlmService s = new LlmService(c, Map.of("a", a, "b", b), clock);
+        List<ToolCatalog.Mode> asked = new ArrayList<>();
+        s.trySend("ma", "sys", "user", mode -> {
+            asked.add(mode);
+            return new JsonArray();
+        }).orElseThrow().get();
+        assertEquals(List.of(ToolCatalog.Mode.COMPACT), asked);
+        assertEquals(ToolCatalog.Mode.GATED, s.toolCatalog("mb"));
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.aiciv.trade;
 
 import com.aiciv.nav.Pos;
 import com.aiciv.perception.Compass;
+import com.aiciv.world.DimensionStores;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -17,33 +18,36 @@ public final class VillagerMemory {
 
     private record Entry(String profession, Pos pos, List<OfferView> offers, long tick) {}
 
-    /** Insertion order is least recently seen first; seeing a villager again moves it to the end. */
-    private final Map<UUID, Entry> villagers = new LinkedHashMap<>();
-    private String dimension;
+    /** Per dimension; insertion order is least recently seen first, and seeing a villager again moves it to the end. */
+    private final DimensionStores<Map<UUID, Entry>> stores = new DimensionStores<>(LinkedHashMap::new);
 
-    /** Positions only mean something in one dimension: forget every villager when the bot changes dimension. */
+    /** Positions only mean something in one dimension: switch to the villagers remembered in {@code key}. */
     public void enterDimension(String key) {
-        if (dimension != null && !dimension.equals(key)) villagers.clear();
-        dimension = key;
+        stores.enter(key);
+    }
+
+    private Map<UUID, Entry> villagers() {
+        return stores.active();
     }
 
     public void seen(UUID id, String profession, Pos pos, List<OfferView> offers, long tick) {
+        Map<UUID, Entry> villagers = villagers();
         villagers.remove(id);
         villagers.put(id, new Entry(profession, pos, List.copyOf(offers), tick));
         while (villagers.size() > CAPACITY) villagers.remove(villagers.keySet().iterator().next());
     }
 
     public int size() {
-        return villagers.size();
+        return villagers().size();
     }
 
     public boolean knows(UUID id) {
-        return villagers.containsKey(id);
+        return villagers().containsKey(id);
     }
 
     /** The villager remembered at exactly {@code pos} (where its offers were read), if any. */
     public Optional<UUID> idAt(Pos pos) {
-        for (Map.Entry<UUID, Entry> e : villagers.entrySet()) if (e.getValue().pos.equals(pos)) return Optional.of(e.getKey());
+        for (Map.Entry<UUID, Entry> e : villagers().entrySet()) if (e.getValue().pos.equals(pos)) return Optional.of(e.getKey());
         return Optional.empty();
     }
 
@@ -78,7 +82,7 @@ public final class VillagerMemory {
     }
 
     private List<Entry> nearestFirst(Pos from) {
-        return villagers.values().stream().sorted(Comparator.comparingDouble(e -> distance(e.pos, from))).toList();
+        return villagers().values().stream().sorted(Comparator.comparingDouble(e -> distance(e.pos, from))).toList();
     }
 
     private static String where(Entry e, Pos from) {

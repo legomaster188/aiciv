@@ -39,6 +39,21 @@ class PanelSnapshotTest {
     }
 
     @Test
+    void anAutopilotViewIsSerialised() {
+        com.aiciv.autopilot.AutopilotView ap = new com.aiciv.autopilot.AutopilotView("miner", "Miner", "get_iron_tools",
+                "iron_pickaxe", "goal get_iron_tools: step iron_pickaxe: smelt", java.util.Map.of("brave", 0.4), null);
+        PanelSnapshot.BotView bot = new PanelSnapshot.BotView("Rex", "autopilot-miner", null, "autopilot", false, false, 20,
+                20, 0, 64, 0, "minecraft:overworld", null, "idle", null, null, "", "", ap);
+        JsonObject json = new Gson().toJsonTree(bot).getAsJsonObject();
+        assertEquals("get_iron_tools", json.getAsJsonObject("autopilot").get("goal").getAsString());
+        assertEquals("miner", json.getAsJsonObject("autopilot").get("personality").getAsString());
+        PanelSnapshot.BotView old = new PanelSnapshot.BotView("Ada", "jev", "typesafe", "menu", false, false, 18.5, 17,
+                1.5, 64, -3.5, "minecraft:overworld", null, "idle", null, null, "", "");
+        assertNull(old.autopilot());
+        assertFalse(new Gson().toJsonTree(old).getAsJsonObject().has("autopilot"));
+    }
+
+    @Test
     void providerInfoNeverCarriesAKeyField() {
         for (var f : LlmService.ProviderInfo.class.getRecordComponents()) {
             assertFalse(f.getName().toLowerCase().contains("key"), f.getName());

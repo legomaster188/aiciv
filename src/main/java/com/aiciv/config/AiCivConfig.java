@@ -1,5 +1,6 @@
 package com.aiciv.config;
 
+import com.aiciv.actions.ToolCatalog;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /** aiciv.json. Public fields so Gson can fill them; field initializers are the defaults. */
 public final class AiCivConfig {
@@ -31,11 +33,27 @@ public final class AiCivConfig {
     public int eventWindow = 10;
     public int maxActionsPerDecision = 6;
     public PanelConfig panel = new PanelConfig();
+    public AutopilotConfig autopilot = new AutopilotConfig();
 
     /** The local web admin panel. Needs a restart to change. */
     public static final class PanelConfig {
         public boolean enabled = true;
         public int port = 8765;
+    }
+
+    /** Bots driven by the built-in planner instead of an LLM (model type "autopilot"). */
+    public static final class AutopilotConfig {
+        /** Idle re-think while not busy. */
+        public int thinkSeconds = 5;
+        /** Least time after an action ends before the next decision. */
+        public int gapMillis = 500;
+        /** Pulse period: how often each autopilot checks for danger, hunger and nightfall. */
+        public int checkTicks = 20;
+        public int maxDecisionsPerTick = 4;
+        public int chatCooldownSeconds = 30;
+        public int chatLlmCooldownSeconds = 60;
+        public int globalChatGapMillis = 2000;
+        public int chatLlmMaxAgeSeconds = 20;
     }
 
     public static final class ProviderConfig {
@@ -76,10 +94,28 @@ public final class AiCivConfig {
         public int maxTokens = 1000;
         /** "tools" (the model calls action functions) or "menu" (it picks one option from a short list). Typesafe providers always use menu. */
         public String decisionMode = "tools";
+        /**
+         * How much of the tool catalog tool-mode requests carry: "gated" (core tools plus the modules that fit the bot's
+         * situation), "full" (every tool) or "compact" (gated without parameter descriptions, for small per-request
+         * token limits). A request the provider rejects as too large is retried compact.
+         */
+        public String toolCatalog = "gated";
         /** Extra request fields merged into the body, for example {"reasoning_effort": "none"}. */
         public JsonObject extra = new JsonObject();
+        /** "llm" (an LLM decides) or "autopilot" (the built-in planner decides). */
+        public String type = "llm";
+        /** Autopilot only: the personality id. */
+        public String personality;
+        /** Autopilot only: an LLM model key that writes chat lines. */
+        public String chatModel;
+        /** Autopilot only: overrides autopilot.thinkSeconds. */
+        public Integer thinkSeconds;
 
         public ModelConfig() {}
+
+        public boolean isAutopilot() {
+            return "autopilot".equals(type);
+        }
 
         ModelConfig(String provider, String model, String fallback) {
             this.provider = provider;
@@ -117,18 +153,34 @@ public final class AiCivConfig {
         if (c.providers == null) c.providers = new LinkedHashMap<>();
         if (c.models == null) c.models = new LinkedHashMap<>();
         if (c.panel == null) c.panel = new PanelConfig();
+        if (c.autopilot == null) c.autopilot = new AutopilotConfig();
         for (ModelConfig m : c.models.values()) {
             if (m.extra == null) m.extra = new JsonObject();
             if (m.decisionMode == null) m.decisionMode = "tools";
+            if (m.type == null) m.type = "llm";
+            if (m.toolCatalog == null) m.toolCatalog = "gated";
         }
         return c;
     }
 
-    /** Human-readable problems; empty when the config is usable. */
+    /** Human-readable problems; empty when the config is usable. Personality names are not checked. */
     public List<String> validate() {
+        return validate(null);
+    }
+
+    /** As {@link #validate()}, also checking autopilot personalities against {@code personalityIds} unless it is null. */
+    public List<String> validate(Set<String> personalityIds) {
         List<String> problems = new ArrayList<>();
         for (Map.Entry<String, ModelConfig> e : models.entrySet()) {
             ModelConfig m = e.getValue();
+            if (m.type != null && !"llm".equals(m.type) && !m.isAutopilot()) {
+                problems.add("model '" + e.getKey() + "' has unknown type '" + m.type + "' (use llm or autopilot)");
+                continue;
+            }
+            if (m.isAutopilot()) {
+                validateAutopilot(e.getKey(), m, personalityIds, problems);
+                continue;
+            }
             if (m.provider == null || !providers.containsKey(m.provider)) {
                 problems.add("model '" + e.getKey() + "' uses unknown provider '" + m.provider + "'");
             }
@@ -137,6 +189,9 @@ public final class AiCivConfig {
             }
             if (!"tools".equals(m.decisionMode) && !"menu".equals(m.decisionMode)) {
                 problems.add("model '" + e.getKey() + "' has unknown decisionMode '" + m.decisionMode + "' (use tools or menu)");
+            }
+            if (ToolCatalog.Mode.parse(m.toolCatalog) == null) {
+                problems.add("model '" + e.getKey() + "' has unknown toolCatalog '" + m.toolCatalog + "' (use gated, full or compact)");
             }
             if (m.fallback != null && !models.containsKey(m.fallback)) {
                 problems.add("model '" + e.getKey() + "' falls back to unknown model '" + m.fallback + "'");
@@ -160,6 +215,7 @@ public final class AiCivConfig {
             }
         }
         for (String key : models.keySet()) {
+            if (models.get(key).isAutopilot()) continue;
             String typesafe = typesafeFallback(key);
             if (typesafe != null) {
                 problems.add("model '" + key + "' decides with tools, but its fallback '" + typesafe + "' uses typesafe provider '"
@@ -172,13 +228,37 @@ public final class AiCivConfig {
         if (!models.containsKey(defaultModel)) {
             problems.add("defaultModel '" + defaultModel + "' is not a configured model");
         }
+        if (autopilot != null) {
+            if (autopilot.thinkSeconds < 1) problems.add("autopilot.thinkSeconds must be at least 1");
+            if (autopilot.checkTicks < 1) problems.add("autopilot.checkTicks must be at least 1");
+            if (autopilot.maxDecisionsPerTick < 1) problems.add("autopilot.maxDecisionsPerTick must be at least 1");
+        }
         return problems;
+    }
+
+    private void validateAutopilot(String key, ModelConfig m, Set<String> personalityIds, List<String> problems) {
+        if (m.personality == null || m.personality.isBlank()) {
+            problems.add("autopilot model '" + key + "' has no personality");
+        } else if (personalityIds != null && !personalityIds.contains(m.personality)) {
+            problems.add("autopilot model '" + key + "' uses unknown personality '" + m.personality + "' (known: "
+                    + String.join(", ", new TreeSet<>(personalityIds)) + ")");
+        }
+        if (m.chatModel != null) {
+            ModelConfig chat = models.get(m.chatModel);
+            if (chat == null) {
+                problems.add("autopilot model '" + key + "' uses unknown chatModel '" + m.chatModel + "'");
+            } else if (chat.isAutopilot()) {
+                problems.add("autopilot model '" + key + "' chats with '" + m.chatModel
+                        + "', which is an autopilot; chatModel must be an LLM model");
+            }
+        }
+        if (m.fallback != null) problems.add("autopilot model '" + key + "' cannot have a fallback");
     }
 
     /** True when the model picks from an option menu: configured so, or served by a typesafe (decision-only) provider. */
     public boolean isMenuMode(String modelKey) {
         ModelConfig m = models.get(modelKey);
-        if (m == null) return false;
+        if (m == null || m.isAutopilot()) return false;
         ProviderConfig p = providers.get(m.provider);
         return "menu".equals(m.decisionMode) || (p != null && "typesafe".equals(p.type));
     }

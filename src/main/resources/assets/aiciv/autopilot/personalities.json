@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "base": {
+    "traits": {"brave": 0, "greedy": 0, "social": 0, "tidy": 0, "patient": 0},
+    "goals": {
+      "get_wood_tools": 0.9, "get_stone_tools": 0.8, "get_iron_tools": 0.6, "get_iron_armor": 0.4, "get_food": 0.9,
+      "defend": 0.5, "social": 0.6, "build_base": 0.4, "store_items": 0.6, "farm": 0.3, "trade_emeralds": 0.2,
+      "mine_diamonds": 0.2, "explore": 0.2, "beat_game": 0.0
+    },
+    "phrases": {}
+  },
+  "personalities": {
+    "default": {
+      "name": "Default",
+      "description": "An ordinary survivor with no strong leanings.",
+      "traits": {"brave": 0, "greedy": 0, "social": 0, "tidy": 0, "patient": 0},
+      "goals": {},
+      "phrases": {}
+    },
+    "miner": {
+      "name": "Miner",
+      "description": "Happiest underground; digs for iron and diamonds and keeps the best ore.",
+      "traits": {"brave": 0.4, "greedy": 0.5, "social": -0.3, "tidy": 0.2, "patient": 0.6},
+      "goals": {"get_iron_tools": 0.9, "mine_diamonds": 1.0, "get_iron_armor": 0.6, "build_base": 0.3, "farm": 0.1, "trade_emeralds": 0.1, "explore": 0.3},
+      "phrases": {}
+    },
+    "builder": {
+      "name": "Builder",
+      "description": "Cautious and tidy; raises a home first and keeps it stocked.",
+      "traits": {"brave": -0.2, "greedy": -0.2, "social": 0.3, "tidy": 0.9, "patient": 0.8},
+      "goals": {"build_base": 1.0, "get_stone_tools": 0.9, "get_iron_tools": 0.4, "farm": 0.4, "mine_diamonds": 0.1, "store_items": 0.8},
+      "phrases": {}
+    },
+    "farmer": {
+      "name": "Farmer",
+      "description": "Peaceful and patient; grows food and sells the surplus.",
+      "traits": {"brave": -0.5, "greedy": -0.4, "social": 0.4, "tidy": 0.6, "patient": 0.9},
+      "goals": {"farm": 1.0, "get_food": 1.0, "build_base": 0.6, "trade_emeralds": 0.4},
+      "phrases": {}
+    },
+    "trader": {
+      "name": "Trader",
+      "description": "Friendly and shrewd; hoards emeralds and talks to everyone.",
+      "traits": {"brave": -0.3, "greedy": 0.8, "social": 0.9, "tidy": 0.3, "patient": 0.4},
+      "goals": {"trade_emeralds": 1.0, "farm": 0.5, "build_base": 0.4, "social": 0.7},
+      "phrases": {}
+    },
+    "guard": {
+      "name": "Guard",
+      "description": "Fearless protector; armors up and fights anything that comes near.",
+      "traits": {"brave": 1.0, "greedy": -0.5, "social": 0.5, "tidy": 0.0, "patient": 0.3},
+      "goals": {"defend": 1.0, "get_iron_armor": 0.9, "get_iron_tools": 0.8, "social": 0.6},
+      "phrases": {}
+    },
+    "explorer": {
+      "name": "Explorer",
+      "description": "Restless wanderer; always wants to see what is over the next hill.",
+      "traits": {"brave": 0.6, "greedy": 0.0, "social": 0.2, "tidy": -0.6, "patient": -0.4},
+      "goals": {"explore": 1.0, "get_food": 0.9, "get_stone_tools": 0.8, "get_iron_tools": 0.5, "build_base": 0.1},
+      "phrases": {}
+    },
+    "speedrunner": {
+      "name": "Speedrunner",
+      "description": "Reckless and impatient; races for iron and the end of the game.",
+      "traits": {"brave": 0.7, "greedy": 0.6, "social": -0.5, "tidy": -0.8, "patient": -0.9},
+      "goals": {"get_iron_tools": 1.0, "beat_game": 1.0, "get_iron_armor": 0.8, "mine_diamonds": 0.6, "build_base": 0.0, "farm": 0.0, "social": 0.1, "store_items": 0.0},
+      "phrases": {}
+    },
+    "hermit": {
+      "name": "Hermit",
+      "description": "Keeps to itself; stays near a quiet home and avoids company.",
+      "traits": {"brave": -0.6, "greedy": 0.3, "social": -1.0, "tidy": 0.7, "patient": 0.7},
+      "goals": {"build_base": 0.9, "farm": 0.7, "get_iron_tools": 0.6, "explore": 0.2, "social": 0.0, "defend": 0.2},
+      "phrases": {}
+    },
+    "chatty": {
+      "name": "Chatty",
+      "description": "Sociable and generous; would rather talk than dig.",
+      "traits": {"brave": -0.2, "greedy": -0.8, "social": 1.0, "tidy": 0.0, "patient": 0.0},
+      "goals": {"social": 1.0, "farm": 0.4, "build_base": 0.4, "explore": 0.3, "trade_emeralds": 0.5},
+      "phrases": {}
+    }
+  }
+}

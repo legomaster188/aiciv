@@ -1,6 +1,5 @@
 package com.aiciv.building;
 
-import com.aiciv.world.BlockNames;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
@@ -14,8 +13,14 @@ import java.util.Objects;
  * A structure as a model designs it: {@code cells[y][row][col]}, layers bottom to top. {@code '.'} must be air,
  * {@code ' '} is left as it is, any other symbol is a key of {@code legend} (block id without namespace).
  */
-public record Blueprint(int width, int depth, int height, char[][][] cells, Map<Character, String> legend, int yOffset) {
+public record Blueprint(int width, int depth, int height, char[][][] cells, Map<Character, String> legend, int yOffset,
+                        Map<Character, Map<String, String>> states) {
     public static final int LIMIT = 16;
+
+    /** A blueprint with no block states. */
+    public Blueprint(int width, int depth, int height, char[][][] cells, Map<Character, String> legend, int yOffset) {
+        this(width, depth, height, cells, legend, yOffset, Map.of());
+    }
 
     /**
      * @param layers array (bottom to top) of layers; a layer is an array of row strings or one string with rows
@@ -26,7 +31,8 @@ public record Blueprint(int width, int depth, int height, char[][][] cells, Map<
         if (layers == null || !layers.isJsonArray() || layers.getAsJsonArray().isEmpty()) {
             throw new BlueprintException("layers must be a non-empty list of layers, bottom to top");
         }
-        Map<Character, String> blocks = parseLegend(legend);
+        Map<Character, Map<String, String>> states = new LinkedHashMap<>();
+        Map<Character, String> blocks = parseLegend(legend, states);
         List<List<String>> rowsByLayer = new ArrayList<>();
         int layerNumber = 0;
         for (JsonElement layer : layers.getAsJsonArray()) {
@@ -76,14 +82,14 @@ public record Blueprint(int width, int depth, int height, char[][][] cells, Map<
             }
         }
         if (placed == 0) throw new BlueprintException("the blueprint places nothing: it needs at least one legend symbol");
-        return new Blueprint(width, depth, height, cells, blocks, 0);
+        return new Blueprint(width, depth, height, cells, blocks, 0, states);
     }
 
     private static boolean isString(JsonElement e) {
         return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isString();
     }
 
-    private static Map<Character, String> parseLegend(JsonElement legend) throws BlueprintException {
+    private static Map<Character, String> parseLegend(JsonElement legend, Map<Character, Map<String, String>> states) throws BlueprintException {
         if (legend == null || !legend.isJsonObject()) throw new BlueprintException("legend must be an object mapping one-character symbols to block ids");
         JsonObject object = legend.getAsJsonObject();
         Map<Character, String> out = new LinkedHashMap<>();
@@ -95,15 +101,16 @@ public record Blueprint(int width, int depth, int height, char[][][] cells, Map<
                 throw new BlueprintException("legend key '" + symbol + "' is reserved: '.' means air and ' ' means leave the cell alone");
             }
             if (!isString(e.getValue())) throw new BlueprintException("legend value for '" + key + "' must be a block id such as cobblestone");
-            String id = BlockNames.normalise(e.getValue().getAsString());
-            if (id.isEmpty()) throw new BlueprintException("legend value for '" + key + "' is empty");
-            out.put(symbol, id);
+            BlockSpec spec = BlockSpec.parse(e.getValue().getAsString());
+            if (spec.id().isEmpty()) throw new BlueprintException("legend value for '" + key + "' is empty");
+            out.put(symbol, spec.id());
+            if (!spec.props().isEmpty()) states.put(symbol, spec.props());
         }
         return out;
     }
 
     public Blueprint withYOffset(int offset) {
-        return new Blueprint(width, depth, height, cells, legend, offset);
+        return new Blueprint(width, depth, height, cells, legend, offset, states);
     }
 
     /** The symbol at the cell; a space outside the blueprint. */
@@ -122,17 +129,17 @@ public record Blueprint(int width, int depth, int height, char[][][] cells, Map<
     @Override
     public boolean equals(Object o) {
         return o instanceof Blueprint b && width == b.width && depth == b.depth && height == b.height && yOffset == b.yOffset
-                && Arrays.deepEquals(cells, b.cells) && legend.equals(b.legend);
+                && Arrays.deepEquals(cells, b.cells) && legend.equals(b.legend) && states.equals(b.states);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(width, depth, height, Arrays.deepHashCode(cells), legend, yOffset);
+        return Objects.hash(width, depth, height, Arrays.deepHashCode(cells), legend, yOffset, states);
     }
 
     @Override
     public String toString() {
-        return "Blueprint[" + width + "x" + depth + "x" + height + ", legend=" + legend + ", yOffset=" + yOffset + "]";
+        return "Blueprint[" + width + "x" + depth + "x" + height + ", legend=" + legend + (states.isEmpty() ? "" : ", states=" + states) + ", yOffset=" + yOffset + "]";
     }
 
     /** Layers of row strings, for tests and the templates. */

@@ -31,7 +31,9 @@ public final class DecisionLog {
     }
 
     public void append(String bot, JsonObject record) {
-        latest.put(bot.toLowerCase(Locale.ROOT), record.deepCopy());
+        // an autopilot's spoken line is not a decision: the panel's "latest decision" must not be replaced by it
+        boolean chat = record.get("mode") instanceof com.google.gson.JsonPrimitive m && "autopilot-chat".equals(m.getAsString());
+        if (!chat) latest.put(bot.toLowerCase(Locale.ROOT), record.deepCopy());
         try {
             Files.createDirectories(dir);
             Files.writeString(dir.resolve(bot + ".jsonl"), record + "\n",

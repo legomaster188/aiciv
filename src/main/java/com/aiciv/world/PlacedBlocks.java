@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
@@ -23,6 +24,8 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
  */
 public final class PlacedBlocks {
     public static final int CAPACITY = 250_000;
+    /** No lava is poured with a block someone else placed this close: it would burn or bury it. */
+    public static final int LAVA_KEEP_AWAY = 3;
 
     private static PlacedBlocks current;
 
@@ -97,6 +100,30 @@ public final class PlacedBlocks {
     /** Placed by someone other than {@code me}; a bot may take down its own pillars and bridges like a player would. */
     public boolean isPlacedByOther(ServerLevel level, BlockPos pos, String me) {
         return at(level, pos).map(p -> !p.placer().equals(me)).orElse(false);
+    }
+
+    /**
+     * The nearest block within {@code radius} (straight-line) of {@code centre} that someone other than {@code me} placed
+     * and that passes {@code which}; empty when there is none. Fire, lava and TNT must keep away from what others built.
+     */
+    public Optional<BlockPos> placedByOtherNear(ServerLevel level, BlockPos centre, int radius, String me, Predicate<BlockState> which) {
+        BlockPos best = null;
+        double bestD2 = Double.MAX_VALUE;
+        for (BlockPos pos : BlockPos.betweenClosed(centre.offset(-radius, -radius, -radius), centre.offset(radius, radius, radius))) {
+            double d2 = pos.distSqr(centre);
+            if (d2 > (double) radius * radius || d2 >= bestD2) continue;
+            if (isPlacedByOther(level, pos, me) && which.test(level.getBlockState(pos))) {
+                best = pos.immutable();
+                bestD2 = d2;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    /** "oak_planks at 3 64 -2 (placed by Steve)", for refusals that name what is in the way. */
+    public String describe(ServerLevel level, BlockPos pos) {
+        String who = at(level, pos).map(PlacementStore.Placement::placer).orElse("someone else");
+        return id(level.getBlockState(pos)) + " at " + pos.getX() + " " + pos.getY() + " " + pos.getZ() + " (placed by " + who + ")";
     }
 
     /** Blocks {@code placer} placed in this level at or after {@code tick} that are still there, oldest first. */

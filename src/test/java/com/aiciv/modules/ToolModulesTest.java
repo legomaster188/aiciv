@@ -92,7 +92,8 @@ class ToolModulesTest {
 
     @Test
     void theRegistryHoldsTheFeatureModules() {
-        assertEquals(List.of("building", "storage", "combat", "trade", "farm", "utility", "gear"),
+        assertEquals(List.of("building", "storage", "combat", "trade", "farm", "utility", "gear", "dimension", "nether",
+                        "stronghold", "dragon", "vehicles", "flight", "items", "animals", "stations"),
                 ToolModules.ALL.stream().map(ToolModule::name).toList());
     }
 }

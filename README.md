@@ -2,8 +2,9 @@
 
 AI players for Minecraft 26.3, each driven by a language model (Gemini, Groq, OpenRouter,
 GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model). They join as normal
-players, chat, and walk around. Milestones 1 to 3 (chat, survival, building and society) of the design in
-`docs/superpowers/specs/2026-10-11-aiciv-design.md`.
+players, chat, and walk around. Milestones 1 to 5 of the design in `docs/superpowers/specs/2026-10-11-aiciv-design.md`:
+chat, survival, building and society, everything a player can do (the endgame, travel, items, animals,
+stations and redstone), and autopilot bots that need no model.
 
 Server-side only: viewers join with an unmodded 26.3 client. Works in singleplayer too.
 
@@ -75,6 +76,92 @@ probabilities and always use menu mode. The decision log gains `mode`, `option`,
 
 On OpenRouter use `typesafe/jev-1.13`; `typesafe/jev-router` is a chat router to other models, not Jev.
 
+## Autopilot bots (no LLM needed)
+
+An autopilot plays survival with a built-in planner instead of a language model. It is an ordinary fake
+player: same reflexes, same snapshot, same actions and the same fairness rules as an LLM bot. Each one has a
+personality that sets what it works on, how it talks and how it treats other players. Autopilots cost no
+requests, so any number can run next to the LLM bots.
+
+Spawn one with the model key `autopilot-<personality>`, for example `/ai spawn Rex autopilot-speedrunner`
+(`autopilot:<personality>` also works in `aiciv.json` and the panel; commands cannot contain `:`). Every
+personality has an implicit key, so no config is needed. To pick a chat model or a different thinking
+interval, add a model of `"type": "autopilot"` to `aiciv.json`:
+
+```json
+"models": {
+  "rex": { "type": "autopilot", "personality": "speedrunner" },
+  "fen": { "type": "autopilot", "personality": "farmer", "chatModel": "gemma-menu-free", "thinkSeconds": 8 }
+},
+"autopilot": { "thinkSeconds": 5, "gapMillis": 500, "checkTicks": 20, "maxDecisionsPerTick": 4,
+               "chatCooldownSeconds": 30, "chatLlmCooldownSeconds": 60, "globalChatGapMillis": 2000, "chatLlmMaxAgeSeconds": 20 }
+```
+
+`chatModel` names any LLM model in the file (a cheap one is plenty). It only rewrites the bot's chat lines in
+its own words, at most once per `chatLlmCooldownSeconds`; the planner still decides every action. If that
+model is unavailable, rate limited or slow (a reply older than `chatLlmMaxAgeSeconds` is dropped), the bot says
+the template line or nothing. Without `chatModel` an autopilot only uses its templates. The `autopilot` block
+is optional; the values above are the defaults.
+
+Personalities (`/ai personalities` lists them). Traits run from -1 to 1:
+
+| Id | Brave | Greedy | Social | Tidy | Patient | Likes |
+|----|------:|-------:|-------:|-----:|--------:|-------|
+| `default` | 0 | 0 | 0 | 0 | 0 | an ordinary survivor |
+| `miner` | 0.4 | 0.5 | -0.3 | 0.2 | 0.6 | iron, diamonds |
+| `builder` | -0.2 | -0.2 | 0.3 | 0.9 | 0.8 | a stocked home |
+| `farmer` | -0.5 | -0.4 | 0.4 | 0.6 | 0.9 | crops, bread, selling the surplus |
+| `trader` | -0.3 | 0.8 | 0.9 | 0.3 | 0.4 | emeralds, villagers |
+| `guard` | 1.0 | -0.5 | 0.5 | 0 | 0.3 | armor and fighting |
+| `explorer` | 0.6 | 0 | 0.2 | -0.6 | -0.4 | wandering |
+| `speedrunner` | 0.7 | 0.6 | -0.5 | -0.8 | -0.9 | iron, then the end of the game |
+| `hermit` | -0.6 | 0.3 | -1.0 | 0.7 | 0.7 | a quiet home, no company |
+| `chatty` | -0.2 | -0.8 | 1.0 | 0 | 0 | talking and giving things away |
+
+Brave sets when the bot retreats and how far it fights; greedy how much it keeps before giving things away
+(generous bots give everything); social how often it talks (a loner only answers when spoken to); tidy when it
+stores its things and builds a home; patient how long it sticks to a goal and how often it retries a step.
+
+Goals, in the order the planner knows them: `get_wood_tools`, `get_stone_tools`, `get_iron_tools`,
+`get_iron_armor`, `get_food`, `defend`, `social`, `build_base`, `store_items`, `farm`, `trade_emeralds`,
+`mine_diamonds`, `explore`, `beat_game`. Each personality weights them differently, and the bot works on the
+one with the best weight times need. **Pin a goal** with `/ai goal <name> <goal id>` (for example
+`/ai goal Rex get_iron_armor`, `/ai goal Rex none` to unpin); other text is refused with the list of ids.
+`social` answers chat such as "Rex give me 3 bread", "Rex come here" or "Rex follow me", and anyone's
+"anyone got bread" (but not another autopilot's). A person's request comes before any goal except staying
+alive; a bot that cannot answer at once says it is busy, and a hermit says no. `beat_game` runs
+the iron chain and then the endgame steps listed in `assets/aiciv/autopilot/endgame.json`, as far as the
+actions that exist go; when a step needs an action that is not available it stops there and says why.
+
+**Your own personalities.** Put a `personalities.json` in `config/aiciv/`. It is merged over the shipped file
+field by field, so you can change one trait of `miner` or add a new id (`[a-z0-9_]{1,24}`, then use
+`autopilot-<id>`):
+
+```json
+{
+  "personalities": {
+    "scout": {
+      "name": "Scout", "description": "Runs ahead and reports back.",
+      "traits": { "brave": 0.3, "social": 0.6, "patient": -0.5 },
+      "goals": { "explore": 1.0, "get_food": 0.6 },
+      "phrases": { "greet": ["Scout {me} reporting in, {other}!"], "brag": ["Found a {item}!"] }
+    }
+  }
+}
+```
+
+Traits and goal weights are clamped to -1..1, and a bad entry (unknown trait or goal id, a non-number, broken JSON)
+is reported, never fatal: `/ai reload` and the server log list every problem, and the shipped personalities keep
+working. A chat line whose `{placeholder}` cannot be filled is never said. The chat templates ship in the mod
+as `assets/aiciv/autopilot/phrases.json` (a `base` set plus lines per personality, with `{me}`, `{speaker}`,
+`{other}`, `{item}` and similar placeholders); the `phrases` key of a personality in `personalities.json`
+replaces a category for that personality. An autopilot whose personality disappears on reload switches to
+`defaultModel`, like any bot whose model disappeared.
+
+Autopilot decisions are in `logs/aiciv/<name>.jsonl` with `mode: autopilot`, the personality, the goal, the
+step and the planner's reasoning in `thought`. Chat lines are logged with `mode: autopilot-chat` and their
+source (`template` or `llm`). The panel and `/ai status` show the personality, traits, goal, step and thought.
+
 ## Actions
 
 Bots play survival with the same limits as a player (real break times, correct tools, crafting tables,
@@ -107,6 +194,22 @@ furnaces and fuel, reach, attack cooldown). Each action ends as done or failed w
 | `enchant(item, option)`, `brew(potion, count)` | Enchanting table (lapis and levels) and brewing stand |
 | `stop()` | Stand still |
 
+Milestone 4 added about 57 actions. Each is a catalog function with the same limits and failure texts a player would
+meet; `go_to_nether`, `get_blaze_rods`, `go_to_end` and the other routines chain primitives (see below).
+
+| Group | Actions |
+|-------|---------|
+| Portals and dimensions | `build_portal` (10 obsidian, lit with flint and steel or a fire charge), `cast_portal` (water on lava against a temporary wall), `light_portal`, `enter_portal(kind)` (`nether`, `end`, `any`; real portal timers), `go_to_nether`, `leave_nether` |
+| Nether | `find_fortress(direction, distance)`, `hunt_blazes(count)`, `get_blaze_rods(count)` |
+| Stronghold and the End | `make_eyes(count)`, `throw_eye`, `locate_stronghold(spread)`, `go_to_stronghold`, `find_portal_room`, `fill_end_portal`, `go_to_end` |
+| The dragon | `fight_dragon`, `shoot_crystals(count)`, `break_cage`, `hit_dragon(seconds)`, `leave_end` |
+| Travel | `place_boat`, `board`, `dismount`, `ride_to(x, z)`, `boat_to(x, z)`, `place_minecart`, `ride_minecart` (at most 512 blocks per call) |
+| Flight and pearls | `fly_to(x, z)` (elytra, 16 to 1024 blocks, up to 16 rockets), `launch_elytra`, `boost`, `throw_pearl(x, y, z)` (3 to 40 blocks, costs 5 health) |
+| Items | `fill_bucket`, `empty_bucket`, `bone_meal(count)`, `ignite`, `carve_pumpkin`, `drink`, `throw`, `make_map`, `link_compass` |
+| Animals | `tame`, `saddle`, `leash`, `tie_lead`, `unleash`, `milk`, `shear`, `dye_sheep` |
+| Stations | `upgrade_netherite`, `trim_armor`, `stonecut(count)`, `grindstone`, `repair`, `loom`, `cartography`, `write_book` (10 pages of 1024 characters, title up to 32) |
+| Redstone | `build` legends take block states, `use_block` sets repeater delay, comparator mode, daylight detector mode |
+
 Tip: one turn can chain up to 6 actions (`maxActionsPerDecision`), for example
 `mine log 6 -> craft wooden_pickaxe -> mine stone 3 -> craft stone_pickaxe`.
 
@@ -130,9 +233,71 @@ reach and see a face, pillars with throwaway blocks for high cells, and takes th
 up afterwards. Beds cannot be part of a blueprint: use `place`. Finished builds are remembered per world in
 `<world>/aiciv/structures.json` and listed in every bot's view.
 
+Legend values may carry block states in brackets, so redstone and other oriented blocks can be built:
+`"R": "repeater[facing=forward,delay=2]"`. `facing` is a compass direction or, relative to the blueprint,
+`forward`, `back`, `left` or `right`. Supported states are `facing`, `delay`, `mode`, `face`, `axis` and `powered`
+(levers only). The bot stands and looks the way a player would to get the facing it wants, sets repeater delays,
+comparator modes and lever positions with real clicks, and fails (taking its own wrong block down) when the block
+comes out different. A stone strip with a line of three repeaters on it, each delaying by 3 ticks:
+
+```json
+{ "name": "delay_line", "facing": "S", "legend": { "r": "repeater[facing=forward,delay=3]", "s": "stone" },
+  "layers": [ ["sss"], ["rrr"] ] }
+```
+
 **Bots never break blocks other players or bots placed.** Every placed block is recorded in
 `<world>/aiciv/placed.json`; navigation never digs them, `mine` skips them and `build` fails rather than clearing them.
 Natural blocks in a footprint are cleared.
+
+### Dimensions
+
+Bots change dimension only through real portals, with their real timers: no teleporting. The rule for every action:
+if the bot ends up in another dimension while an action runs (an accidental portal, a death, an end gateway), the
+action ends `FAILED "... you went through to <dimension>"`, the navigator stops, and nothing walks toward coordinates of
+the old dimension. Only `enter_portal` and the routines that expect to cross carry on. Actions that belong to one
+dimension check it first: `"<tool> works in the_nether; you are in overworld"`. Known blocks, chests, villagers and
+waypoints (portals, a fortress, the stronghold estimate, the End arrival) are remembered per dimension and are back when
+the bot returns. Navigation never steps into a portal block or the void. After a crossing the bot waits beside the
+arrival portal for the portal cooldown before it takes it back. If the server has no nether or End, `enter_portal`
+fails with `the_nether does not exist on this server`.
+
+### Routines and their steps
+
+A routine is one action made of primitives that the model can also call one at a time. Each step runs when the previous
+one is done; a failed step ends the routine with that step's reason.
+
+| Routine | Steps |
+|---------|-------|
+| `go_to_nether` | walk to a known portal, else light a frame in sight, else `build_portal`; then `enter_portal nether` |
+| `leave_nether` | walk to the nearest portal waypoint; `enter_portal nether` |
+| `get_blaze_rods` | `find_fortress` unless one is remembered nearby; `hunt_blazes` |
+| `make_eyes` | `craft blaze_powder` from rods when short; `craft ender_eye` |
+| `locate_stronghold` | `throw_eye`, walk sideways, `throw_eye` (a third time if the flights are nearly parallel), triangulate |
+| `go_to_stronghold` | walk to the estimate, throw eyes until one sinks, dig down, `find_portal_room` |
+| `go_to_end` | `find_portal_room`; `fill_end_portal`; `enter_portal end` (each skipped when done) |
+| `fight_dragon` | repeat what the situation needs: `shoot_crystals`, `break_cage`, `hit_dragon` |
+| `leave_end` | walk to the fountain; `enter_portal end` through the exit portal |
+| `boat_to` | `place_boat` (or use one nearby); `board`; `ride_to`; `dismount`; pick the boat up |
+| `ride_minecart` | `place_minecart`; `board`; ride until it stops; `dismount`; pick the cart up |
+
+### Tool-catalog size
+
+In tool mode every request carries a function catalog; menu mode does not send one. Each model's `toolCatalog` picks how
+much of it:
+
+- `"gated"` (the default): the core and milestone 1-3 tools always, and each milestone 4 module only when it fits the
+  bot's situation (dragon tools only in the End; nether tools in the nether or with obsidian, flint and steel, a fire
+  charge or a bucket of lava or water, or a nether portal in sight; stronghold tools with ender pearls, eyes, blaze rods
+  or powder or an end portal frame in sight; vehicles while riding, near a mount, boat or minecart, or carrying a boat,
+  minecart or saddle; flight with an elytra or pearls; stations near a station block; animals with an animal in view;
+  items when carrying a bucket, bone meal, shears, a potion, a throwable, a map or a compass). A typical overworld bot
+  gets 46 functions, about 19,200 characters.
+- `"full"`: all 95 functions, 34,578 characters (about 8,600 to 11,500 tokens).
+- `"compact"`: gated, without the parameter descriptions (about 13,100 characters for the same overworld bot).
+
+A provider that refuses a request as too large (HTTP 413, or Groq's "Request too large ... tokens per minute") does not
+count against its health: the bot logs it once and asks again at once with the compact catalog, which it keeps from then
+on. `CatalogSizeTest` measures these sizes.
 
 ### Testing sleep
 
@@ -150,7 +315,8 @@ In singleplayer, `/ai` needs cheats enabled for the world.
 | `/ai spawn <name> [model] [persona...]` | Adds an AI player at your position |
 | `/ai remove <name>` | Removes it from the world and the roster |
 | `/ai list` | Every AI player and what it is doing |
-| `/ai goal <name> <text>` | Sets its long-term goal |
+| `/ai goal <name> <text>` | Sets its long-term goal (an autopilot takes only a goal id, which it pins, or `none`) |
+| `/ai personalities` | Lists the autopilot personalities |
 | `/ai pause [name\|all]`, `/ai resume [name\|all]` | Stops or restarts thinking and acting |
 | `/ai status <name>` | Details for one AI player |
 | `/ai budget` | Requests used and left per provider, and provider health |

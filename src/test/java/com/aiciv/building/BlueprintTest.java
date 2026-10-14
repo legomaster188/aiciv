@@ -90,6 +90,19 @@ class BlueprintTest {
     }
 
     @Test
+    void legendValuesMayCarryBlockStates() throws Exception {
+        Blueprint bp = Blueprint.parse(json("[[\"R\"]]"), json("{\"R\":\"repeater[facing=north,delay=2]\"}"));
+        assertEquals(java.util.Map.of('R', "repeater"), bp.legend());
+        assertEquals(java.util.Map.of('R', java.util.Map.of("facing", "north", "delay", "2")), bp.states());
+        assertTrue(Blueprint.parse(json("[[\"c\"]]"), json("{\"c\":\"stone\"}")).states().isEmpty());
+    }
+
+    @Test
+    void aBadStateInTheLegendIsReported() {
+        assertEquals("legend value \"repeater[facing\" has an unclosed [", reason("[[\"R\"]]", "{\"R\":\"repeater[facing\"}"));
+    }
+
+    @Test
     void aJsonArrayOfPlainStringsIsOneLayerPerString() throws Exception {
         JsonArray layers = new JsonArray();
         layers.add("c");

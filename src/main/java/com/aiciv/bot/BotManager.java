@@ -2,11 +2,24 @@ package com.aiciv.bot;
 
 import com.aiciv.AiCiv;
 import com.aiciv.actions.ActionExecutor;
+import com.aiciv.autopilot.AutopilotBrain;
+import com.aiciv.autopilot.AutopilotChat;
+import com.aiciv.autopilot.AutopilotEngine;
+import com.aiciv.autopilot.AutopilotEvent;
+import com.aiciv.autopilot.AutopilotModels;
+import com.aiciv.autopilot.AutopilotSpec;
+import com.aiciv.autopilot.AutopilotView;
+import com.aiciv.autopilot.ChatDirectors;
+import com.aiciv.autopilot.Engines;
+import com.aiciv.autopilot.GoalIds;
+import com.aiciv.autopilot.personality.Personalities;
+import com.aiciv.autopilot.personality.Personality;
 import com.aiciv.brain.BotBrain;
 import com.aiciv.brain.DecisionLog;
 import com.aiciv.brain.Hearing;
 import com.aiciv.brain.ThinkQueue;
 import com.aiciv.config.AiCivConfig;
+import com.aiciv.dimension.Portals;
 import com.aiciv.llm.LlmService;
 import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
@@ -25,6 +38,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.Commands;
@@ -48,6 +62,7 @@ public final class BotManager {
     private final MinecraftServer server;
     private AiCivConfig config;
     private LlmService llm;
+    private Personalities personalities;
     private final Path rosterFile;
     private final Roster roster;
     private final DecisionLog decisionLog;
@@ -64,9 +79,15 @@ public final class BotManager {
 
     public BotManager(MinecraftServer server, AiCivConfig config, LlmService llm, Path rosterFile,
                       DecisionLog decisionLog, Clock clock) throws IOException {
+        this(server, config, llm, rosterFile, decisionLog, clock, Personalities.defaults());
+    }
+
+    public BotManager(MinecraftServer server, AiCivConfig config, LlmService llm, Path rosterFile,
+                      DecisionLog decisionLog, Clock clock, Personalities personalities) throws IOException {
         this.server = server;
         this.config = config;
         this.llm = llm;
+        this.personalities = personalities;
         this.rosterFile = rosterFile;
         this.roster = Roster.load(rosterFile);
         this.decisionLog = decisionLog;
@@ -81,7 +102,7 @@ public final class BotManager {
                 AiCiv.LOG.warn("Not restoring {}: a player with that name is online", e.name);
                 continue;
             }
-            if (!llm.knowsModel(e.model)) {
+            if (!knowsModel(e.model)) {
                 AiCiv.LOG.warn("{} uses unknown model '{}'; falling back to '{}'", e.name, e.model, config.defaultModel);
                 e.model = config.defaultModel;
                 saveRoster();
@@ -98,22 +119,58 @@ public final class BotManager {
     }
 
     public void reload(AiCivConfig config, LlmService llm) {
+        reload(config, llm, personalities);
+    }
+
+    /** Applies new config, LLM routes and personalities; a bot whose model (or autopilot personality) vanished moves to defaultModel. */
+    public void reload(AiCivConfig config, LlmService llm, Personalities personalities) {
         this.config = config;
         this.llm = llm;
+        this.personalities = personalities;
         warningsLogged.clear();
         warningsDelivered.clear();
         boolean changed = false;
         for (Bot b : bots.values()) {
-            b.brain.setTiming(config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, config.eventWindow);
-            b.brain.setActionEndedGap(config.decisionGapSeconds * 1000L);
-            if (!llm.knowsModel(b.brain.modelKey())) {
+            if (!knowsModel(b.brain.modelKey())) {
                 AiCiv.LOG.warn("{} uses unknown model '{}'; falling back to '{}'", b.name, b.brain.modelKey(), config.defaultModel);
                 b.brain.setModelKey(config.defaultModel);
                 roster.get(b.name).ifPresent(e -> e.model = config.defaultModel);
                 changed = true;
             }
+            attach(b);
         }
         if (changed) saveRoster();
+    }
+
+    /** An LLM model with a route, or a model key that resolves to an autopilot. */
+    public boolean knowsModel(String key) {
+        return llm.knowsModel(key) || AutopilotModels.resolve(key, config, personalities.ids()).isPresent();
+    }
+
+    /**
+     * Sets the bot up for its model: an autopilot gets (or keeps, with a new spec) its planner state and autopilot timing;
+     * an LLM bot loses it and gets the LLM timing.
+     */
+    private void attach(Bot b) {
+        Optional<AutopilotSpec> spec = AutopilotModels.resolve(b.brain.modelKey(), config, personalities.ids());
+        if (spec.isPresent()) {
+            Personality p = personalities.get(spec.get().personality()).orElse(personalities.fallback());
+            AutopilotEngine engine = Engines.create();
+            AutopilotChat chat = ChatDirectors.create(b.name, spec.get(), p, engine.tuning(p), config.autopilot);
+            if (b.autopilot == null) {
+                queue.remove(b.name);
+                b.autopilot = new AutopilotBrain(b.name, spec.get(), p, engine, chat);
+            } else {
+                b.autopilot.respec(spec.get(), p, engine, chat);
+            }
+            b.brain.setTiming(spec.get().thinkSeconds() * 1000L, config.mentionCooldownSeconds * 1000L, config.eventWindow);
+            b.brain.setActionEndedGap(config.autopilot.gapMillis);
+        } else {
+            if (b.autopilot != null) scheduler.forget(b.name);
+            b.autopilot = null;
+            b.brain.setTiming(config.idleWakeSeconds * 1000L, config.mentionCooldownSeconds * 1000L, config.eventWindow);
+            b.brain.setActionEndedGap(config.decisionGapSeconds * 1000L);
+        }
     }
 
     /** Tells online operators, once per provider, that its key is missing or was rejected. Never shows the key. */
@@ -160,9 +217,9 @@ public final class BotManager {
         if (name.equalsIgnoreCase("all")) throw new BotException("'all' is reserved");
         Optional<Roster.Entry> existing = roster.get(name);
         String model = modelKey != null ? modelKey
-                : existing.map(e -> e.model).filter(llm::knowsModel).orElse(config.defaultModel);
-        if (!llm.knowsModel(model)) {
-            throw new BotException("Unknown model '" + model + "'. Configured models: " + String.join(", ", llm.modelKeys()));
+                : existing.map(e -> e.model).filter(this::knowsModel).orElse(config.defaultModel);
+        if (!knowsModel(model)) {
+            throw new BotException("Unknown model '" + model + "'. Configured models: " + String.join(", ", modelKeys()));
         }
         Roster.Entry e = roster.getOrAdd(name);
         e.model = model;
@@ -171,6 +228,7 @@ public final class BotManager {
         saveRoster();
         Bot b = join(e);
         b.player.moveTo(level, pos, 0.0F);
+        b.dimension = Portals.key(b.player.level()); // placed there, not a journey
         return b;
     }
 
@@ -182,8 +240,20 @@ public final class BotManager {
         saveRoster();
     }
 
+    /**
+     * An autopilot's goal pins one of its goal ids ("none" unpins it); free text means nothing to it, so it is refused
+     * with the list of ids instead of being stored as if it had been understood.
+     */
     public void setGoal(String name, String goal) throws BotException {
         Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
+        if (AutopilotModels.resolve(e.model, config, personalities.ids()).isPresent()) {
+            String id = goal == null ? "" : goal.trim().toLowerCase(Locale.ROOT);
+            if (id.equals("none")) id = "";
+            if (!id.isEmpty() && !GoalIds.ALL.contains(id)) {
+                throw new BotException("autopilots take goal ids: " + String.join(", ", GoalIds.ALL) + " (or none)");
+            }
+            goal = id;
+        }
         e.goal = goal;
         Bot b = bots.get(key(name));
         if (b != null) b.brain.setGoal(goal);
@@ -193,12 +263,15 @@ public final class BotManager {
     /** Switches a bot to another configured model; it applies from the bot's next decision. */
     public void setModel(String name, String modelKey) throws BotException {
         Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
-        if (!llm.knowsModel(modelKey)) {
-            throw new BotException("Unknown model '" + modelKey + "'. Configured models: " + String.join(", ", llm.modelKeys()));
+        if (!knowsModel(modelKey)) {
+            throw new BotException("Unknown model '" + modelKey + "'. Configured models: " + String.join(", ", modelKeys()));
         }
         e.model = modelKey;
         Bot b = bots.get(key(name));
-        if (b != null) b.brain.setModelKey(modelKey);
+        if (b != null) {
+            b.brain.setModelKey(modelKey);
+            attach(b);
+        }
         saveRoster();
     }
 
@@ -237,6 +310,7 @@ public final class BotManager {
                 // A paused bot is not ticked, so whatever is steering it (an action or a reflex) is stopped here.
                 b.executor.stop(b.context);
                 queue.remove(b.name);
+                scheduler.forget(b.name);
                 b.reflexes.reset(b);
                 b.navigator.stop();
                 b.breaker.cancel();
@@ -254,6 +328,9 @@ public final class BotManager {
             Bot b = bots.get(key(e.name));
             String line = e.name + " [" + e.model + "] " + state(b);
             if (b != null && b.executor.busy()) line += ": " + b.executor.currentDescription();
+            if (b != null && b.autopilot != null && b.autopilot.memory().goal() != null) {
+                line += " (goal " + b.autopilot.memory().goal() + ")";
+            }
             out.add(line);
         }
         return out;
@@ -272,8 +349,19 @@ public final class BotManager {
             int pos = queue.positionOf(b.name);
             out.add("Queue position: " + (pos < 0 ? "not waiting" : pos));
             out.add("Remembered events: " + b.brain.events().lines().size());
+            if (b.autopilot != null) out.addAll(autopilotLines(b.autopilot.view()));
         }
         return out;
+    }
+
+    private static List<String> autopilotLines(AutopilotView v) {
+        List<String> traits = new ArrayList<>();
+        v.traits().forEach((t, x) -> traits.add(t + " " + Math.round(x * 100) / 100.0));
+        return List.of(
+                "Personality: " + v.personalityName() + " (" + v.personality() + ") " + String.join(", ", traits),
+                "Goal: " + (v.goal() == null ? "(none)" : v.goal() + " / step " + v.step()),
+                "Thought: " + v.thought(),
+                "Chat model: " + (v.chatModel() == null ? "none" : v.chatModel()));
     }
 
     public List<String> budgetLines() {
@@ -288,8 +376,21 @@ public final class BotManager {
         return roster.all().stream().map(e -> e.name).toList();
     }
 
+    /** Configured model keys and an autopilot-<id> key per personality, sorted. */
     public Set<String> modelKeys() {
-        return llm.modelKeys();
+        Set<String> out = new TreeSet<>(config.models.keySet());
+        out.addAll(AutopilotModels.implicitKeys(personalities.ids()));
+        return out;
+    }
+
+    /** The model of the online bot with that name, or null. */
+    public String modelOf(String bot) {
+        Bot b = bots.get(key(bot));
+        return b == null ? null : b.brain.modelKey();
+    }
+
+    public Personalities personalities() {
+        return personalities;
     }
 
     // ---------------------------------------------------------------- ticking
@@ -309,14 +410,37 @@ public final class BotManager {
                     continue;
                 }
                 if (b.player.isDeadOrDying() || b.brain.paused()) continue;
+                checkDimension(b);
                 b.reflexes.tick(b);
                 b.navigator.tick();
                 String ended = b.executor.tick(b.context);
-                if (ended != null) b.brain.actionsEnded(stamp(), ended);
+                if (ended != null) {
+                    b.brain.actionsEnded(stamp(), ended);
+                    if (b.autopilot != null) b.autopilot.actionsEnded(ended, server.getTickCount(), clock.millis());
+                }
             } catch (RuntimeException e) {
                 fault(b.name, "tick", e);
             }
         }
+    }
+
+    /**
+     * A portal, a pearl or a gateway moved the bot to another dimension since the last tick: whatever was steering it
+     * toward old-dimension coordinates stops, and the current action fails unless it is the one crossing over.
+     */
+    private void checkDimension(Bot b) {
+        String now = Portals.key(b.player.level());
+        if (now.equals(b.dimension)) return;
+        b.dimension = now;
+        b.navigator.stop();
+        b.breaker.cancel();
+        b.reflexes.reset(b);
+        b.knownBlocks.enterDimension(now);
+        BlockPos at = b.player.blockPosition();
+        b.brain.note(stamp(), String.format(Locale.ROOT, "you are now in %s at %d %d %d",
+                Portals.shortName(now), at.getX(), at.getY(), at.getZ()));
+        String ended = b.executor.dimensionChanged(b.context, Portals.shortName(now));
+        if (ended != null) b.brain.actionsEnded(stamp(), ended);
     }
 
     /** End of server tick: wake bots and send LLM requests. */
@@ -328,6 +452,16 @@ public final class BotManager {
 
     public void onChat(ServerPlayer speaker, String text) {
         routeChat(speaker.getScoreboardName(), speaker.level(), speaker.position(), text, null);
+    }
+
+    /** Every autopilot hears that someone else joined. */
+    public void onJoin(ServerPlayer joined) {
+        long tick = server.getTickCount();
+        long now = clock.millis();
+        for (Bot b : List.copyOf(bots.values())) {
+            if (b.autopilot == null || b.player == joined) continue;
+            b.autopilot.observe(new AutopilotEvent.PlayerJoined(joined.getScoreboardName(), joined instanceof AiPlayer), tick, now);
+        }
     }
 
     void botSays(Bot bot, String text) {
@@ -345,20 +479,40 @@ public final class BotManager {
         String cause = attacker != null ? attacker.getName().getString() : source.getMsgId();
         b.brain.hurt(stamp(), String.format(Locale.ROOT, "you were hurt by %s (%.1f damage), health now %d/%d",
                 cause, taken, Math.round(p.getHealth()), Math.round(p.getMaxHealth())), clock.millis());
+        if (b.autopilot != null) {
+            b.autopilot.observe(new AutopilotEvent.Hurt(cause, Math.round(p.getHealth())), server.getTickCount(), clock.millis());
+        }
     }
 
     /** Records the death; the bot respawns on the next tick, like a player clicking "Respawn". */
     public void onDeath(LivingEntity entity, DamageSource source) {
+        if (!(entity instanceof ServerPlayer dying)) return;
+        String message = source.getLocalizedDeathMessage(dying).getString();
+        tellAutopilotsOfDeath(dying, message);
         if (!(entity instanceof AiPlayer p)) return;
         Bot b = bots.get(key(p.getScoreboardName()));
         if (b == null || b.player != p || b.death != null) return;
         BlockPos at = p.blockPosition();
-        b.death = new Bot.Death(source.getLocalizedDeathMessage(p).getString(), at.getX(), at.getY(), at.getZ());
+        b.death = new Bot.Death(message, at.getX(), at.getY(), at.getZ());
         b.life++;
         queue.remove(b.name);
+        scheduler.forget(b.name);
+        if (b.autopilot != null) b.autopilot.observe(new AutopilotEvent.Died(message), server.getTickCount(), clock.millis());
         b.executor.stop(b.context);
         b.navigator.stop();
         b.breaker.cancel();
+    }
+
+    /** Autopilots within hearing range of a dying player, in the same level, hear about it. */
+    private void tellAutopilotsOfDeath(ServerPlayer dying, String message) {
+        long tick = server.getTickCount();
+        long now = clock.millis();
+        double range2 = (double) config.hearingRange * config.hearingRange;
+        for (Bot b : bots.values()) {
+            if (b.autopilot == null || b.player == dying || b.player.level() != dying.level()) continue;
+            if (b.player.position().distanceToSqr(dying.position()) > range2) continue;
+            b.autopilot.observe(new AutopilotEvent.OtherDied(dying.getScoreboardName(), message), tick, now);
+        }
     }
 
     private void respawn(Bot b) {
@@ -384,6 +538,7 @@ public final class BotManager {
         b.breaker = breaker;
         b.navigator = new LevelNavigator(player, navBudget, breaker);
         b.context = new LiveContext(this, b); // builds the action breaker for the new player too
+        b.dimension = Portals.key(player.level()); // a respawn is not a journey: no dimension-change event
         b.reflexes.reset(b); // a flee or eat from the old life must not keep the actions paused
         b.brain.actionsEnded(stamp(), String.format(Locale.ROOT, "you died: %s. Your items dropped at %d %d %d",
                 death.message(), death.x(), death.y(), death.z()));
@@ -402,7 +557,11 @@ public final class BotManager {
         BlockBreaker breaker = new BlockBreaker(p);
         Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget, breaker), breaker);
         b.context = new LiveContext(this, b);
+        b.dimension = Portals.key(p.level());
         bots.put(key(e.name), b);
+        attach(b);
+        if (b.autopilot != null) b.autopilot.observe(new AutopilotEvent.Spawned(), server.getTickCount(), clock.millis());
+        onJoin(p);
         return b;
     }
 
@@ -410,6 +569,7 @@ public final class BotManager {
         b.executor.stop(b.context);
         b.navigator.stop();
         queue.remove(b.name);
+        scheduler.forget(b.name);
         bots.remove(key(b.name));
         server.getPlayerList().broadcastSystemMessage(
                 Component.translatable("multiplayer.player.left", b.player.getDisplayName()).withStyle(ChatFormatting.YELLOW), false);
@@ -424,11 +584,18 @@ public final class BotManager {
     private void routeChat(String speaker, Level level, Vec3 pos, String text, Bot exclude) {
         long now = clock.millis();
         String stamp = stamp();
-        for (Bot b : bots.values()) {
+        boolean speakerIsAi = exclude != null || server.getPlayerList().getPlayerByName(speaker) instanceof AiPlayer;
+        Bot speakingBot = exclude != null ? exclude : bots.get(key(speaker));
+        boolean speakerIsAutopilot = speakingBot != null && speakingBot.autopilot != null;
+        for (Bot b : List.copyOf(bots.values())) {
             if (b == exclude) continue;
             boolean mentioned = Hearing.mentions(text, b.name);
             double d2 = b.player.level() == level ? b.player.position().distanceToSqr(pos) : Double.MAX_VALUE;
-            if (Hearing.hears(d2, config.hearingRange, mentioned)) b.brain.hearChat(stamp, speaker, text, mentioned, now);
+            if (!Hearing.hears(d2, config.hearingRange, mentioned)) continue;
+            b.brain.hearChat(stamp, speaker, text, mentioned, now);
+            if (b.autopilot != null) {
+                b.autopilot.observe(new AutopilotEvent.Heard(speaker, text, mentioned, speakerIsAi, speakerIsAutopilot), server.getTickCount(), now);
+            }
         }
     }
 
@@ -473,6 +640,7 @@ public final class BotManager {
 
     public Collection<Bot> bots() { return bots.values(); }
     ThinkQueue queue() { return queue; }
+    BrainScheduler scheduler() { return scheduler; }
     public LlmService llm() { return llm; }
     public AiCivConfig config() { return config; }
     public DecisionLog decisionLog() { return decisionLog; }

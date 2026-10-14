@@ -22,7 +22,7 @@ import net.minecraft.world.phys.Vec3;
 public final class SurvivalGameTests {
     private static final int SIZE = 16;
 
-    private static void arena(GameTestHelper helper) {
+    static void arena(GameTestHelper helper) {
         GameTestKit.clearBarriers(helper, SIZE);
         for (int x = 0; x < SIZE; x++) {
             for (int z = 0; z < SIZE; z++) helper.setBlock(x, 0, z, (x + z) % 3 == 0 ? Blocks.DIRT : Blocks.STONE);

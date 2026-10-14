@@ -78,6 +78,8 @@ public final class AiPlayer extends ServerPlayer {
 
     @Override
     public void tick() {
+        // A bot has no client to watch the credits; with this set the End exit portal sends it home through the normal portal path.
+        seenCredits = true;
         if (level().getServer().getTickCount() % 10 == 0) {
             connection.resetPosition();
             level().getChunkSource().move(this);

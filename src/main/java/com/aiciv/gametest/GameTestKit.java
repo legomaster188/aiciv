@@ -1,8 +1,13 @@
 package com.aiciv.gametest;
 
+import com.aiciv.autopilot.personality.Personalities;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotException;
 import com.aiciv.bot.BotManager;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.llm.ChatBackend;
+import com.aiciv.llm.LlmService;
 import com.aiciv.llm.ScriptedBackend;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -10,15 +15,18 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
-/** Shared arena and bot helpers for the milestone-3 game tests. */
+/** Shared arena and bot helpers for the milestone-3 and later game tests. */
 public final class GameTestKit {
     private GameTestKit() {}
 
@@ -34,6 +42,27 @@ public final class GameTestKit {
                 }
             }
         }
+    }
+
+    /**
+     * Entities (projectiles, boats, mobs) freeze in a chunk that is loaded but not entity-ticking, and an arena wider
+     * than the test's own chunks reaches into such chunks. Forces every chunk under relative x0..x1, z0..z1; run the
+     * returned release when the test ends.
+     */
+    public static Runnable keepEntitiesTicking(GameTestHelper helper, int x0, int z0, int x1, int z1) {
+        ServerLevel level = helper.getLevel();
+        BlockPos a = helper.absolutePos(new BlockPos(x0, 0, z0)), b = helper.absolutePos(new BlockPos(x1, 0, z1));
+        int cx0 = Math.min(a.getX(), b.getX()) >> 4, cx1 = Math.max(a.getX(), b.getX()) >> 4;
+        int cz0 = Math.min(a.getZ(), b.getZ()) >> 4, cz1 = Math.max(a.getZ(), b.getZ()) >> 4;
+        List<int[]> forced = new ArrayList<>();
+        for (int cx = cx0; cx <= cx1; cx++) {
+            for (int cz = cz0; cz <= cz1; cz++) {
+                if (level.setChunkForced(cx, cz, true)) forced.add(new int[] {cx, cz});
+            }
+        }
+        return () -> {
+            for (int[] c : forced) level.setChunkForced(c[0], c[1], false);
+        };
     }
 
     /** A size x size floor of {@code block} at relative y 0. */
@@ -84,6 +113,82 @@ public final class GameTestKit {
         } catch (Exception e) {
             throw new IllegalStateException("could not spawn " + name, e);
         }
+    }
+
+    public record AutoSpawned(BotManager manager, Bot bot, Path dir, ScriptedBackend backend) {}
+
+    /**
+     * The scripted provider and "scripted" model, any {@code extraModelsJson} entries (e.g. {@code "a": {...}, "b": {...}}),
+     * defaultModel "scripted" and fast autopilot timing.
+     */
+    public static String autopilotConfig(String extraModelsJson) {
+        String extra = extraModelsJson == null || extraModelsJson.isBlank() ? "" : ", " + extraModelsJson;
+        return """
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"scripted": {"provider": "scripted", "model": "script"}%s},
+                 "defaultModel": "scripted", "decisionGapSeconds": 0, "autopilot": {"thinkSeconds": 1, "gapMillis": 0}}"""
+                .formatted(extra);
+    }
+
+    /** An autopilot bot at relative (x, 1, z) on {@code model}, with an empty scripted backend; the manager ticks fully. */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model) {
+        ScriptedBackend backend = new ScriptedBackend(List.of());
+        return spawnAutopilot(helper, name, x, z, model, autopilotConfig(""), Map.of("scripted", backend));
+    }
+
+    /**
+     * As above with an explicit config and LLM backends by provider. {@code backend} in the result is the "scripted"
+     * provider's backend when it is a {@link ScriptedBackend}, else null.
+     */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model,
+                                             String configJson, Map<String, ChatBackend> backends) {
+        return spawnAutopilot(helper, name, x, z, model, configJson, backends, Clock.systemUTC());
+    }
+
+    /**
+     * As above on {@code clock}. Autopilot timing (think gaps, chat gaps) is in milliseconds, but game tests run far
+     * faster than 20 ticks per second; a long run needs {@link #tickClock} to see the time it would take in a real game.
+     */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model,
+                                             String configJson, Map<String, ChatBackend> backends, Clock clock) {
+        try {
+            Path dir = Files.createTempDirectory("aiciv-gametest");
+            AiCivConfig config = AiCivConfig.GSON.fromJson(configJson, AiCivConfig.class);
+            LlmService llm = new LlmService(config, backends, clock);
+            BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm, dir.resolve("roster.json"),
+                    new DecisionLog(dir.resolve("logs")), clock, Personalities.defaults());
+            Bot bot = manager.spawn(name, model, "", helper.getLevel(), helper.absoluteVec(new Vec3(x, 1, z)));
+            helper.onEachTick(() -> {
+                manager.tickStart();
+                manager.tickEnd();
+            });
+            ScriptedBackend backend = backends.get("scripted") instanceof ScriptedBackend s ? s : null;
+            return new AutoSpawned(manager, bot, dir, backend);
+        } catch (Exception e) {
+            throw new IllegalStateException("could not spawn " + name, e);
+        }
+    }
+
+    /** A clock that runs 50 ms per server tick, as it would in a real game. */
+    public static Clock tickClock(net.minecraft.server.MinecraftServer server) {
+        long base = System.currentTimeMillis();
+        return new Clock() {
+            @Override public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public java.time.Instant instant() { return java.time.Instant.ofEpochMilli(base + server.getTickCount() * 50L); }
+        };
+    }
+
+    /** As the five-argument spawn on {@link #tickClock}. */
+    public static AutoSpawned spawnAutopilotInGameTime(GameTestHelper helper, String name, double x, double z, String model) {
+        ScriptedBackend backend = new ScriptedBackend(List.of());
+        return spawnAutopilot(helper, name, x, z, model, autopilotConfig(""), Map.of("scripted", backend),
+                tickClock(helper.getLevel().getServer()));
+    }
+
+    /** Removes the autopilot bot if it is still online. */
+    public static void remove(AutoSpawned s) {
+        remove(new Spawned(s.manager(), s.bot()));
     }
 
     /** Removes the bot if it is still online. */

@@ -834,6 +834,78 @@ public final class AiCivGameTests {
         });
     }
 
+    /**
+     * On a stone floor with solid ground under it, a bot mining stone digs the blocks around it, never the one it stands
+     * on (it would drop into its own hole, or out of a one-layer world).
+     */
+    @GameTest(maxTicks = 600)
+    public void minesAroundItselfNotStraightDown(GameTestHelper helper) throws Exception {
+        for (int x = 0; x < 8; x++) {
+            for (int z = 0; z < 8; z++) {
+                helper.setBlock(x, 0, z, Blocks.STONE);
+                helper.setBlock(x, -1, z, Blocks.DIRT);
+            }
+        }
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestMineAround", new Vec3(4.5, 1, 4.5));
+        bot.player.getInventory().setItem(0, new ItemStack(Items.STONE_PICKAXE));
+        int startY = bot.player.blockPosition().getY();
+        bot.executor.replace(List.of(new MineAction("stone", 4)), bot.context);
+        // each tick: did the block the bot stood on at the last check turn to air (only the bot digs here)?
+        BlockPos[] lastUnder = {null};
+        String[] dugOwnFloor = {null};
+        helper.onEachTick(() -> {
+            if (lastUnder[0] != null && helper.getLevel().getBlockState(lastUnder[0]).isAir() && dugOwnFloor[0] == null) {
+                dugOwnFloor[0] = "dug " + lastUnder[0] + " while standing on it at tick " + helper.getTick();
+            }
+            BlockPos under = bot.player.blockPosition().below();
+            lastUnder[0] = helper.getLevel().getBlockState(under).is(Blocks.STONE) ? under : null;
+        });
+        helper.runAfterDelay(599, () -> {
+            if (manager[0].bot("TestMineAround").isPresent()) removeBot(manager[0], "TestMineAround");
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(dugOwnFloor[0] == null, dugOwnFloor[0] + "; " + events(bot));
+            helper.assertTrue(events(bot).contains("finished: mine cobblestone x4"), "mine did not finish: " + events(bot));
+            helper.assertTrue(bot.player.blockPosition().getY() >= startY - 1, "the bot sank to " + bot.player.blockPosition());
+            removeBot(manager[0], "TestMineAround");
+        });
+    }
+
+    /** Standing on the only ore, with a pit under it: the bot steps off and mines it from the side instead of dropping in. */
+    @GameTest(maxTicks = 400)
+    public void stepsOffTheOreItStandsOn(GameTestHelper helper) throws Exception {
+        for (int x = 0; x < 8; x++) {
+            for (int z = 0; z < 8; z++) {
+                helper.setBlock(x, 0, z, Blocks.STONE);
+                helper.setBlock(x, -1, z, Blocks.DIRT);
+            }
+        }
+        helper.setBlock(4, 0, 4, Blocks.AIR);
+        helper.setBlock(4, 1, 4, Blocks.COAL_ORE);
+        BotManager[] manager = new BotManager[1];
+        Bot bot = actionBot(helper, manager, "TestMineOff", new Vec3(4.5, 2, 4.5));
+        bot.player.getInventory().setItem(0, new ItemStack(Items.STONE_PICKAXE));
+        bot.executor.replace(List.of(new MineAction("coal_ore", 1)), bot.context);
+        BlockPos[] lastUnder = {null};
+        String[] dugOwnFloor = {null};
+        helper.onEachTick(() -> {
+            if (lastUnder[0] != null && helper.getLevel().getBlockState(lastUnder[0]).isAir() && dugOwnFloor[0] == null) {
+                dugOwnFloor[0] = "dug " + lastUnder[0] + " while standing on it at tick " + helper.getTick();
+            }
+            BlockPos under = bot.player.blockPosition().below();
+            lastUnder[0] = bot.player.onGround() && !helper.getLevel().getBlockState(under).isAir() ? under : null;
+        });
+        helper.runAfterDelay(399, () -> {
+            if (manager[0].bot("TestMineOff").isPresent()) removeBot(manager[0], "TestMineOff");
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(dugOwnFloor[0] == null, dugOwnFloor[0] + "; " + events(bot));
+            helper.assertTrue(events(bot).contains("finished: mine coal x1"), "mine did not finish: " + events(bot));
+            removeBot(manager[0], "TestMineOff");
+        });
+    }
+
     @GameTest(maxTicks = 300)
     public void mineRetriesWhenTheBlockStateChangesMidBreak(GameTestHelper helper) throws Exception {
         stoneFloor(helper);

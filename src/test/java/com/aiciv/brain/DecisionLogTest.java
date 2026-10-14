@@ -45,6 +45,20 @@ class DecisionLogTest {
     }
 
     @Test
+    void autopilotChatLinesAreLoggedButNeverTheLatestDecision() {
+        DecisionLog log = new DecisionLog(dir);
+        log.append("Ada", record(1));
+        JsonObject chat = new JsonObject();
+        chat.addProperty("mode", "autopilot-chat");
+        chat.addProperty("n", 2);
+        log.append("Ada", chat);
+        assertEquals(1, log.last("Ada").get("n").getAsInt());
+        assertEquals(2, log.tail("Ada", 5).size(), "the chat line is still in the file");
+        log.append("Bob", chat);
+        assertNull(log.last("Bob"));
+    }
+
+    @Test
     void damagedAndPartialLinesAreSkipped() throws Exception {
         Files.writeString(dir.resolve("Ada.jsonl"), "{\"n\": 1}\nnot json\n{\"n\": 3}\n{\"n\": ");
         assertEquals(List.of(3, 1), new DecisionLog(dir).tail("Ada", 10).stream().map(o -> o.get("n").getAsInt()).toList());

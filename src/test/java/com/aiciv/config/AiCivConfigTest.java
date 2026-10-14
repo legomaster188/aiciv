@@ -34,6 +34,19 @@ class AiCivConfigTest {
     }
 
     @Test
+    void toolCatalogDefaultsToGatedAndUnknownValuesAreReported() throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"p": {"baseUrl": "http://x"}},
+             "models": {"m": {"provider": "p", "model": "x"}, "n": {"provider": "p", "model": "y", "toolCatalog": "tiny"}},
+             "defaultModel": "m"}""");
+        AiCivConfig c = AiCivConfig.loadOrCreate(file);
+        assertEquals("gated", c.models.get("m").toolCatalog);
+        assertEquals(List.of("model 'n' has unknown toolCatalog 'tiny' (use gated, full or compact)"), c.validate());
+        assertEquals("gated", AiCivConfig.defaults().models.get("groq-llama").toolCatalog);
+    }
+
+    @Test
     void timeoutSecondsLoadsFromFile() throws Exception {
         Path file = dir.resolve("aiciv.json");
         Files.writeString(file, """
@@ -153,5 +166,63 @@ class AiCivConfigTest {
         assertEquals(List.of("panel.port 70000 is not a valid port (1-65535)"), c.validate());
         c.panel.enabled = false;
         assertEquals(List.of(), c.validate());
+    }
+
+    private AiCivConfig autopilotConfig(String models) throws Exception {
+        Path file = dir.resolve("aiciv.json");
+        Files.writeString(file, """
+            {"providers": {"p": {"baseUrl": "http://x"}},
+             "models": {"m": {"provider": "p", "model": "x"}, %s},
+             "defaultModel": "m"}""".formatted(models));
+        return AiCivConfig.loadOrCreate(file);
+    }
+
+    @Test
+    void autopilotDefaultsAndTypeAreFilledIn() throws Exception {
+        AiCivConfig c = autopilotConfig("\"a\": {\"type\": \"autopilot\", \"personality\": \"miner\"}");
+        assertEquals("llm", c.models.get("m").type);
+        assertTrue(c.models.get("a").isAutopilot());
+        assertEquals(5, c.autopilot.thinkSeconds);
+        assertEquals(500, c.autopilot.gapMillis);
+        assertEquals(20, c.autopilot.checkTicks);
+        assertEquals(4, c.autopilot.maxDecisionsPerTick);
+        assertEquals(30, c.autopilot.chatCooldownSeconds);
+        assertEquals(60, c.autopilot.chatLlmCooldownSeconds);
+        assertEquals(2000, c.autopilot.globalChatGapMillis);
+        assertEquals(20, c.autopilot.chatLlmMaxAgeSeconds);
+    }
+
+    @Test
+    void anAutopilotNeedsNoProviderAndIsNotMenuMode() throws Exception {
+        AiCivConfig c = autopilotConfig("\"a\": {\"type\": \"autopilot\", \"personality\": \"miner\"}");
+        assertEquals(List.of(), c.validate(java.util.Set.of("miner")));
+        assertEquals(List.of(), c.validate());
+        assertFalse(c.isMenuMode("a"));
+    }
+
+    @Test
+    void autopilotValidationMessages() throws Exception {
+        AiCivConfig c = autopilotConfig("""
+            "t": {"type": "robot"},
+            "none": {"type": "autopilot"},
+            "lost": {"type": "autopilot", "personality": "pirate"},
+            "chat1": {"type": "autopilot", "personality": "miner", "chatModel": "nope"},
+            "chat2": {"type": "autopilot", "personality": "miner", "chatModel": "none"},
+            "fb": {"type": "autopilot", "personality": "miner", "fallback": "m"}""");
+        c.autopilot.thinkSeconds = 0;
+        c.autopilot.checkTicks = 0;
+        c.autopilot.maxDecisionsPerTick = 0;
+        List<String> problems = c.validate(java.util.Set.of("miner", "guard", "builder"));
+        assertTrue(problems.contains("model 't' has unknown type 'robot' (use llm or autopilot)"), problems.toString());
+        assertTrue(problems.contains("autopilot model 'none' has no personality"), problems.toString());
+        assertTrue(problems.contains("autopilot model 'lost' uses unknown personality 'pirate' (known: builder, guard, miner)"), problems.toString());
+        assertTrue(problems.contains("autopilot model 'chat1' uses unknown chatModel 'nope'"), problems.toString());
+        assertTrue(problems.contains("autopilot model 'chat2' chats with 'none', which is an autopilot; chatModel must be an LLM model"), problems.toString());
+        assertTrue(problems.contains("autopilot model 'fb' cannot have a fallback"), problems.toString());
+        assertTrue(problems.contains("autopilot.thinkSeconds must be at least 1"), problems.toString());
+        assertTrue(problems.contains("autopilot.checkTicks must be at least 1"), problems.toString());
+        assertTrue(problems.contains("autopilot.maxDecisionsPerTick must be at least 1"), problems.toString());
+        assertTrue(problems.stream().noneMatch(p -> p.contains("provider")), problems.toString());
+        assertTrue(c.validate().stream().noneMatch(p -> p.contains("unknown personality")), "null skips personality checks");
     }
 }

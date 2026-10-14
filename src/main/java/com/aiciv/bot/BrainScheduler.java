@@ -5,6 +5,12 @@ import com.aiciv.actions.Action;
 import com.aiciv.actions.ActionFactory;
 import com.aiciv.actions.SayAction;
 import com.aiciv.actions.ToolCatalog;
+import com.aiciv.autopilot.AutopilotTurns;
+import com.aiciv.autopilot.Decision;
+import com.aiciv.autopilot.GoalIds;
+import com.aiciv.autopilot.Pulse;
+import com.aiciv.autopilot.Situation;
+import com.aiciv.autopilot.SituationCapture;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.brain.OptionMenu.MenuContext;
@@ -31,35 +37,71 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.item.ItemStack;
 
-/** Wakes bots, gives queued bots their LLM turn when a provider is free, and applies the replies. */
+/**
+ * Wakes bots, gives queued bots their LLM turn when a provider is free, and applies the replies. Autopilot bots never
+ * enter the think queue: they decide synchronously, a few per tick in round robin.
+ */
 final class BrainScheduler {
     private final BotManager m;
     /** When each bot first could not dispatch; cleared once it does. */
     private final Map<String, Long> waitingSince = new HashMap<>();
+    private final AutopilotTurns turns = new AutopilotTurns();
+    private final Map<String, LiveChatPort> chatPorts = new HashMap<>();
+    /** When any autopilot last spoke: the server-wide chat gap. */
+    long lastAutopilotChatMillis = Long.MIN_VALUE / 2;
+    /** Bots whose request a provider refused as too large: they get the compact catalog from then on. */
+    private final Set<String> compact = new HashSet<>();
+    /** Bots already logged as too large even with the compact catalog, so that is said once. */
+    private final Set<String> tooLargeEvenCompact = new HashSet<>();
 
     BrainScheduler(BotManager m) {
         this.m = m;
     }
 
+    /** Drops a bot's waiting autopilot turn and chat port (removed, paused, died or switched model). */
+    void forget(String name) {
+        turns.remove(name);
+        chatPorts.remove(name);
+    }
+
     void tick(long now) {
+        long tick = m.server().getTickCount();
         for (Bot b : m.bots()) {
             try {
                 if (b.player.isDeadOrDying()) continue;
+                if (b.autopilot != null) {
+                    if (b.brain.paused()) continue;
+                    String urgent = tick % Math.max(1, m.config().autopilot.checkTicks) == 0
+                            ? b.autopilot.urgent(Pulse.read(b.player, tick), now) : null;
+                    WakeReason r = b.brain.pollWake(now, b.executor.busy());
+                    if (urgent != null) turns.offer(b.name, "URGENT", urgent);
+                    else if (r != null) turns.offer(b.name, r.name(), null);
+                    b.autopilot.chat().tick(chatPorts.computeIfAbsent(b.name, n -> new LiveChatPort(m, b)), now);
+                    continue;
+                }
                 WakeReason r = b.brain.pollWake(now, b.executor.busy());
                 if (r != null) m.queue().offer(b.name, r, now);
             } catch (RuntimeException e) {
                 m.fault(b.name, "wake check", e);
+            }
+        }
+        for (AutopilotTurns.Turn t : turns.take(Math.max(1, m.config().autopilot.maxDecisionsPerTick))) {
+            Optional<Bot> bot = m.bot(t.bot());
+            if (bot.isEmpty() || bot.get().autopilot == null || bot.get().player.isDeadOrDying()) continue;
+            try {
+                decideAutopilot(bot.get(), t, now, tick);
+            } catch (RuntimeException e) {
+                m.fault(bot.get().name, "autopilot", e);
+                bot.get().brain.replied("error");
             }
         }
         // A bot whose request could not be sent waits for the next tick; it never holds up the bots behind it.
@@ -78,6 +120,58 @@ final class BrainScheduler {
                 bot.get().brain.failed(ticket.get().reason());
             }
         }
+    }
+
+    /** One synchronous autopilot decision: snapshot, situation, engine, then the same calls an LLM would make. */
+    private void decideAutopilot(Bot b, AutopilotTurns.Turn t, long now, long tick) {
+        boolean busy = b.executor.busy();
+        String current = b.executor.currentDescription();
+        String pinned = pinnedGoal(b.brain.goal());
+        Situation s = b.autopilot.reusable(t.trigger(), busy, busy ? current : null, Math.round(b.player.getHealth()),
+                b.player.getFoodData().getFoodLevel(), pinned, tick).orElse(null);
+        if (s == null) {
+            SnapshotData data = Perceiver.capture(b.player, current, b.brain.lastDecision(), p -> p instanceof AiPlayer,
+                    b.knownBlocks, b.attachments);
+            s = SituationCapture.capture(b.player, data, busy, busy ? current : null, b.autopilot.memory(),
+                    b.autopilot.tuning(), pinned, tick);
+        }
+        b.brain.dispatched(now);
+        Decision d = b.autopilot.decide(s, t.trigger(), tick, now);
+        if (d.keepCurrent()) {
+            b.brain.replied("kept: " + current);
+            return;
+        }
+        JsonObject log = new JsonObject();
+        log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
+        log.addProperty("trigger", t.trigger());
+        if (t.detail() != null) log.addProperty("urgent", t.detail());
+        log.addProperty("snapshotChars", 0); // an autopilot reads the snapshot's data; nobody formats it as text
+        log.addProperty("provider", "autopilot");
+        log.addProperty("mode", "autopilot");
+        log.addProperty("model", b.brain.modelKey());
+        log.addProperty("personality", b.autopilot.personality().id());
+        if (d.goal() != null) log.addProperty("goal", d.goal());
+        if (d.step() != null) log.addProperty("step", d.step());
+        log.addProperty("thought", d.thought());
+        if (d.calls().isEmpty()) {
+            log.add("calls", new JsonArray());
+            log.add("problems", new JsonArray());
+            b.brain.replied("waiting");
+            m.decisionLog().append(b.name, log);
+            return;
+        }
+        if (runCalls(b, log, d.calls(), null, null) == 0) {
+            List<String> problems = new ArrayList<>();
+            log.getAsJsonArray("problems").forEach(p -> problems.add(p.getAsString()));
+            b.autopilot.actionsEnded("failed: invalid: " + String.join("; ", problems), tick, now);
+        }
+    }
+
+    /** The bot's operator-set goal when it names an autopilot goal id, else null. */
+    private static String pinnedGoal(String goal) {
+        if (goal == null) return null;
+        String g = goal.trim().toLowerCase(Locale.ROOT);
+        return GoalIds.ALL.contains(g) ? g : null;
     }
 
     /** True when the bot's model has a route open now; otherwise, if no provider on it can recover soon, tells operators why. */
@@ -113,10 +207,13 @@ final class BrainScheduler {
                 b.attachments);
         String snapshot = SnapshotFormatter.format(data, SnapshotFormatter.MAX_CHARS);
         if (m.llm().menuMode(b.brain.modelKey())) return thinkMenu(b, ticket, now, data, snapshot);
+        boolean small = compact.contains(b.name);
+        ToolCatalog.Mode configured = small ? ToolCatalog.Mode.COMPACT : m.llm().toolCatalog(b.brain.modelKey());
         String system = PromptBuilder.system(b.name, b.brain.persona(), b.brain.goal(), m.othersFor(b),
-                m.config().maxActionsPerDecision, ToolCatalog.guide());
+                m.config().maxActionsPerDecision, ToolCatalog.guide(configured, data, b.context));
         String user = PromptBuilder.user(List.of(), b.brain.events().lines(), snapshot);
-        Optional<CompletableFuture<LlmService.Outcome>> sent = m.llm().trySend(b.brain.modelKey(), system, user, ToolCatalog.tools());
+        Optional<CompletableFuture<LlmService.Outcome>> sent = m.llm().trySend(b.brain.modelKey(), system, user,
+                mode -> ToolCatalog.tools(small ? ToolCatalog.Mode.COMPACT : mode, data, b.context));
         if (sent.isEmpty()) {
             m.queue().offer(b.name, ticket.reason(), ticket.since());
             return false;
@@ -161,12 +258,7 @@ final class BrainScheduler {
         for (Sighting s : data.blocks()) mineable.add(s.label());
         for (String r : data.remembered()) mineable.add(r.substring(0, r.indexOf(' ')));
         if (hasPickaxe) mineable.add("stone");
-        List<String> hostile = new ArrayList<>();
-        for (Sighting s : data.mobs()) {
-            if (s.distance() > 16 || hostile.contains(s.label())) continue;
-            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.withDefaultNamespace(s.label()));
-            if (type.getCategory() == MobCategory.MONSTER) hostile.add(s.label());
-        }
+        List<String> hostile = Perceiver.hostileLabels(data.mobs(), 16);
         List<String> players = new ArrayList<>();
         for (Sighting s : data.players()) players.add(s.label().replaceAll(" \\[(AI|human)\\]$", ""));
         return new MenuContext(inventory, craftableTargets(b, inventory), data.food() <= 12, hostile, players, mineable.stream().distinct().toList());
@@ -246,6 +338,14 @@ final class BrainScheduler {
             return;
         }
 
+        if (err == null && outcome instanceof LlmService.Outcome.TooLarge large) {
+            tooLarge(b, large);
+            log.addProperty("error", large.reason());
+            b.brain.failed(ticket.reason()); // asks again, now with the compact catalog
+            m.decisionLog().append(b.name, log);
+            return;
+        }
+
         if (err != null || !(outcome instanceof LlmService.Outcome.Reply reply)) {
             String why = err != null ? String.valueOf(err)
                     : outcome instanceof LlmService.Outcome.Failed f ? f.reason() : "rate limited";
@@ -263,6 +363,18 @@ final class BrainScheduler {
         if (reply.reply().finishReason() != null) log.addProperty("finish_reason", reply.reply().finishReason());
         if (reply.reply().usage() != null) log.add("usage", reply.reply().usage());
         runCalls(b, log, reply.reply().calls(), reply.reply().plainText(), reply.reply().finishReason());
+    }
+
+    /** Switches the bot to the compact catalog, logging the first refusal (and a compact one) once. */
+    private void tooLarge(Bot b, LlmService.Outcome.TooLarge large) {
+        String provider = large.route().providerKey();
+        if (compact.add(b.name)) {
+            AiCiv.LOG.warn("AiCiv: {}'s request was too large for {} ({}); retrying with the compact tool catalog", b.name, provider,
+                    large.reason());
+        } else if (tooLargeEvenCompact.add(b.name)) {
+            AiCiv.LOG.warn("AiCiv: {}'s request is too large for {} even with the compact tool catalog ({}); give the model a "
+                    + "provider with a larger per-request token limit", b.name, provider, large.reason());
+        }
     }
 
     /** Menu mode: runs the chosen option's call chain, or notes that the model named something the menu never offered. */
@@ -290,8 +402,11 @@ final class BrainScheduler {
         m.decisionLog().append(b.name, log);
     }
 
-    /** Turns calls into actions and starts them (talking aside), noting problems; shared by tools and menu mode. */
-    private void runCalls(Bot b, JsonObject log, List<ToolCall> callList, String plainText, String finishReason) {
+    /**
+     * Turns calls into actions and starts them (talking aside), noting problems; shared by tools, menu and autopilot mode.
+     * Returns how many actions it started.
+     */
+    private int runCalls(Bot b, JsonObject log, List<ToolCall> callList, String plainText, String finishReason) {
         int max = m.config().maxActionsPerDecision;
         List<Action> actions = new ArrayList<>();
         List<String> problems = new ArrayList<>();
@@ -334,5 +449,6 @@ final class BrainScheduler {
         }
         b.brain.replied(actions.isEmpty() ? "nothing" : actions.stream().map(Action::describe).collect(Collectors.joining(", ")));
         m.decisionLog().append(b.name, log);
+        return actions.size();
     }
 }

@@ -3,6 +3,7 @@ package com.aiciv.bot;
 import com.aiciv.actions.Attachments;
 import com.aiciv.actions.BotContext;
 import com.aiciv.actions.PlayerNames;
+import com.aiciv.autopilot.AutopilotEvent;
 import com.aiciv.nav.Navigator;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.KnownBlocks;
@@ -65,7 +66,13 @@ final class LiveContext implements BotContext {
 
     @Override
     public void tell(String botName, String text) {
-        manager.bot(PlayerNames.clean(botName)).ifPresent(o -> o.brain.note(manager.stamp(), text));
+        manager.bot(PlayerNames.clean(botName)).ifPresent(o -> {
+            o.brain.note(manager.stamp(), text);
+            if (o.autopilot != null) {
+                o.autopilot.observe(new AutopilotEvent.Received(bot.name, text), manager.server().getTickCount(),
+                        manager.clock().millis());
+            }
+        });
     }
 
     @Override
