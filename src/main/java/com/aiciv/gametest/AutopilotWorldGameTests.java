@@ -5,9 +5,13 @@ import java.util.List;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 
 /** Autopilot world goals: home, storage, farm, trade, defence, manners (Task 5). Bot names start with TestApWorld. */
 public final class AutopilotWorldGameTests {
@@ -58,6 +62,32 @@ public final class AutopilotWorldGameTests {
             helper.assertTrue(crops >= 3, "only " + crops + " wheat crops on farmland; log: " + lines);
             helper.assertTrue(lines.stream().anyMatch(l -> l.contains("\"goal\":\"farm\"")), "no farm decision; log: " + lines);
             GameTestKit.remove(s);
+        });
+    }
+
+    /** A calm enderman is no threat: a guard next to one leaves it alone (a zombie it kills: AutopilotGameTests). */
+    @GameTest(maxTicks = 400, environment = "aiciv:day")
+    public void guardLeavesCalmEndermanAlone(GameTestHelper helper) {
+        MinecraftServer server = helper.getLevel().getServer();
+        GameTestKit.floor(helper, 8, Blocks.DIRT);
+        CombatGameTests.easy(server);
+        GameTestKit.AutoSpawned s = GameTestKit.spawnAutopilotInGameTime(helper, "TestApWorldCalm", 1.5, 1.5, "autopilot-guard");
+        var inv = s.bot().player.getInventory();
+        inv.setItem(0, new ItemStack(Items.IRON_SWORD));
+        inv.setItem(1, new ItemStack(Items.BREAD, 8));
+        Mob enderman = helper.spawn(EntityTypes.ENDERMAN, new Vec3(4.5, 1, 4.5));
+        enderman.setNoAi(true); // no teleporting, no stare checks: it stays calm unless the bot hits it
+        enderman.setPersistenceRequired();
+        helper.runAfterDelay(300, () -> {
+            List<String> lines = GameTestKit.decisionLines(s.dir(), "TestApWorldCalm");
+            boolean hurt = !enderman.isAlive() || enderman.getHealth() < enderman.getMaxHealth();
+            enderman.discard();
+            GameTestKit.remove(s);
+            CombatGameTests.restoreDifficulty(server);
+            helper.assertTrue(!hurt, "the guard attacked a calm enderman; log: " + lines);
+            helper.assertTrue(lines.stream().noneMatch(l -> l.contains("\"target\":\"enderman\"")), "an attack on the enderman: " + lines);
+            helper.assertTrue(!lines.isEmpty(), "the guard never decided anything");
+            helper.succeed();
         });
     }
 }

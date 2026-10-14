@@ -44,7 +44,7 @@ public final class SituationCapture {
         String holding = "nothing".equals(data.holding()) ? null : data.holding();
         return new Situation(data.name(), p.level().dimension().identifier().getPath(), data.x(), data.y(), data.z(),
                 data.health(), data.food(), p.level().isDarkOutside(), tick, inventory, worn, holding, free,
-                data.blocks(), data.players(), data.mobs(), Perceiver.hostileLabels(data.mobs(), HOSTILE_RANGE),
+                data.blocks(), data.players(), data.mobs(), Perceiver.threatLabels(p, data.mobs(), HOSTILE_RANGE),
                 data.remembered(), tags, structures, knownActions(), currentAction, busy,
                 Set.copyOf(mem.flags()), new HashMap<>(mem.lastDone()), mem.requests(tick), tuning, pinnedGoal);
     }

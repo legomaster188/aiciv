@@ -26,6 +26,8 @@ import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.entity.NeutralMob;
+import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -312,6 +314,34 @@ public final class Perceiver {
             if (type.getCategory() == MobCategory.MONSTER) hostile.add(s.label());
         }
         return hostile;
+    }
+
+    /** Monster labels seen so far and whether that kind is neutral (an enderman, a zombified piglin): fixed per kind. */
+    private static final Map<String, Boolean> NEUTRAL_KINDS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * As {@link #hostileLabels(List, int)}, minus neutral monsters that are not angry at or targeting {@code bot}: a calm
+     * enderman is no threat. Looks at the entities only when a monster of a neutral or not yet known kind is in range.
+     */
+    public static List<String> threatLabels(AiPlayer bot, List<Sighting> mobs, int within) {
+        List<String> hostile = hostileLabels(mobs, within);
+        boolean check = false;
+        for (String label : hostile) check |= NEUTRAL_KINDS.getOrDefault(label, true);
+        if (!check) return hostile;
+        Set<String> provoked = new java.util.HashSet<>();
+        for (Monster m : bot.level().getEntitiesOfClass(Monster.class, bot.getBoundingBox().inflate(within), LivingEntity::isAlive)) {
+            String label = BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).getPath();
+            boolean neutral = m instanceof NeutralMob;
+            NEUTRAL_KINDS.put(label, neutral);
+            if (neutral && m.distanceTo(bot) <= within && provoked((NeutralMob) m, bot)) provoked.add(label);
+        }
+        hostile.removeIf(label -> NEUTRAL_KINDS.getOrDefault(label, false) && !provoked.contains(label));
+        return hostile;
+    }
+
+    /** A neutral mob that is after this player: it targets it, or is angry at it. */
+    public static boolean provoked(NeutralMob m, LivingEntity player) {
+        return m.getTarget() == player || player.level() instanceof ServerLevel level && m.isAngryAt(player, level);
     }
 
     static String itemId(ItemStack s) {

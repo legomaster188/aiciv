@@ -1,19 +1,22 @@
 package com.aiciv.autopilot;
 
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.perception.Perceiver;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.NeutralMob;
 import net.minecraft.world.entity.monster.Monster;
 
 /** A cheap reading between decisions, for urgent replanning without a snapshot. */
 public record Pulse(int health, int food, boolean night, String hostileWithin8, long tick) {
     private static final double RANGE = 8;
 
-    /** Server thread. One entity query: monsters in the bot's box inflated by 8; the nearest within 8 blocks counts. */
+    /** Server thread. One entity query: monsters in the bot's box inflated by 8; the nearest within 8 blocks counts, a calm neutral one not. */
     public static Pulse read(AiPlayer p, long tick) {
         Monster nearest = null;
         double best = RANGE;
         for (Monster m : p.level().getEntitiesOfClass(Monster.class, p.getBoundingBox().inflate(RANGE), LivingEntity::isAlive)) {
+            if (m instanceof NeutralMob n && !Perceiver.provoked(n, p)) continue; // a calm enderman is no reason to replan
             double d = m.distanceTo(p);
             if (d <= best) {
                 best = d;
