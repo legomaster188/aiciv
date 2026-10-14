@@ -24,7 +24,7 @@ class ChatPolicyTest {
         assertEquals(30_000, policy(0).personalCooldown());
         assertEquals(15_000, policy(1).personalCooldown());
         assertEquals(90_000, policy(-1).llmCooldown());
-        assertEquals(30_000, policy(1).llmCooldown());
+        assertEquals(60_000, policy(1).llmCooldown(), "never more than one LLM line a minute, however chatty");
     }
 
     @Test

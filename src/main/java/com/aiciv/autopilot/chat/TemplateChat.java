@@ -123,6 +123,15 @@ public final class TemplateChat implements AutopilotChat {
     }
 
     @Override
+    public void carryOver(AutopilotChat previous) {
+        if (!(previous instanceof TemplateChat old)) return;
+        policy.carryOver(old.policy);
+        said.addAll(old.said);
+        heard.addAll(old.heard);
+        lastAiMention.putAll(old.lastAiMention);
+    }
+
+    @Override
     public void cue(ChatCue cue, long nowMillis) {
         if (!PhraseBook.CATEGORIES.containsKey(cue.category())) return;
         enqueue(cue.category(), cue.vars(), ChatPolicy.kind(cue.category(), cue.priority()), nowMillis, null, null);

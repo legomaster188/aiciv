@@ -20,4 +20,7 @@ public interface AutopilotChat {
 
     /** Server thread, every tick; says at most one line. */
     void tick(ChatPort port, long nowMillis);
+
+    /** Called on the chat that replaces {@code previous} (a reload): keep its cooldowns and what was said lately. */
+    default void carryOver(AutopilotChat previous) {}
 }

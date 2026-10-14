@@ -154,7 +154,7 @@ public final class BotManager {
         if (spec.isPresent()) {
             Personality p = personalities.get(spec.get().personality()).orElse(personalities.fallback());
             AutopilotEngine engine = Engines.create();
-            AutopilotChat chat = ChatDirectors.create(spec.get(), p, engine.tuning(p), config.autopilot);
+            AutopilotChat chat = ChatDirectors.create(b.name, spec.get(), p, engine.tuning(p), config.autopilot);
             if (b.autopilot == null) {
                 queue.remove(b.name);
                 b.autopilot = new AutopilotBrain(b.name, spec.get(), p, engine, chat);

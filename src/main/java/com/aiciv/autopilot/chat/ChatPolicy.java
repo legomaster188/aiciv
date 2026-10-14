@@ -46,8 +46,10 @@ public final class ChatPolicy {
         return Math.round(cfg.chatCooldownSeconds * 1000.0 * tuning.chatCooldownFactor());
     }
 
+    /** Longer for quiet bots, never shorter than the configured gap: a chatty bot does not spend more LLM calls. */
     public long llmCooldown() {
-        return Math.round(cfg.chatLlmCooldownSeconds * 1000.0 * tuning.chatCooldownFactor());
+        long base = cfg.chatLlmCooldownSeconds * 1000L;
+        return Math.max(base, Math.round(base * tuning.chatCooldownFactor()));
     }
 
     public boolean loner() {
@@ -99,5 +101,14 @@ public final class ChatPolicy {
 
     public void banterSpoken(String pair, long now) {
         bantersSpoken.put(pair, now);
+    }
+
+    /** Takes over the throttles of the policy this one replaces (a reload), so a reload cannot open the floodgates. */
+    void carryOver(ChatPolicy old) {
+        lastSpoke = old.lastSpoke;
+        lastReply = old.lastReply;
+        lastLlm = old.lastLlm;
+        bantersConsidered.putAll(old.bantersConsidered);
+        bantersSpoken.putAll(old.bantersSpoken);
     }
 }

@@ -170,8 +170,9 @@ public final class AutopilotBrain {
         chat.observe(e, nowMillis);
     }
 
-    /** Switches spec, personality, engine and chat; memory is kept. */
+    /** Switches spec, personality, engine and chat; memory and the chat's cooldowns are kept. */
     public void respec(AutopilotSpec spec, Personality p, AutopilotEngine engine, AutopilotChat chat) {
+        if (this.chat != null && chat != this.chat) chat.carryOver(this.chat);
         this.spec = spec;
         this.personality = p;
         this.engine = engine;

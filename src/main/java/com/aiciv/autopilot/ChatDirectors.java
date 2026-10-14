@@ -10,7 +10,12 @@ import java.util.SplittableRandom;
 public final class ChatDirectors {
     private ChatDirectors() {}
 
-    public static AutopilotChat create(AutopilotSpec spec, Personality p, Tuning t, AiCivConfig.AutopilotConfig cfg) {
-        return new TemplateChat(spec, p, t, cfg, PhraseBook.forPersonality(p), new SplittableRandom(spec.modelKey().hashCode() ^ p.id().hashCode()));
+    /** Seeded from the bot's name too, so two bots of one personality do not roll the same dice line for line. */
+    public static AutopilotChat create(String botName, AutopilotSpec spec, Personality p, Tuning t, AiCivConfig.AutopilotConfig cfg) {
+        return new TemplateChat(spec, p, t, cfg, PhraseBook.forPersonality(p), new SplittableRandom(seed(botName, spec, p)));
+    }
+
+    static long seed(String botName, AutopilotSpec spec, Personality p) {
+        return 31L * botName.toLowerCase(java.util.Locale.ROOT).hashCode() + (spec.modelKey().hashCode() ^ p.id().hashCode());
     }
 }

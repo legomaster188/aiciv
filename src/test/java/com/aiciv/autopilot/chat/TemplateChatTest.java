@@ -402,6 +402,30 @@ class TemplateChatTest {
     }
 
     @Test
+    void aReloadKeepsTheChatThrottles() {
+        FakeChatPort port = new FakeChatPort();
+        TemplateChat before = chat(1, null); // social 1: optional lines always pass the dice, 15 s apart
+        before.observe(new AutopilotEvent.GoalChanged("farm", "farm"), T0);
+        before.tick(port, T0);
+        assertEquals(1, port.said.size());
+
+        TemplateChat fresh = chat(1, null);
+        fresh.observe(new AutopilotEvent.GoalChanged("explore", "explore"), T0 + 5_000);
+        FakeChatPort freshPort = new FakeChatPort();
+        fresh.tick(freshPort, T0 + 5_000);
+        assertEquals(1, freshPort.said.size(), "a chat built from scratch would speak at once");
+        TemplateChat reloaded = chat(1, null);
+        reloaded.carryOver(before);
+        FakeChatPort after = new FakeChatPort();
+        reloaded.observe(new AutopilotEvent.GoalChanged("explore", "explore"), T0 + 5_000);
+        reloaded.tick(after, T0 + 5_000);
+        assertTrue(after.said.isEmpty(), "spoke 5 s after the last line, right after a reload: " + after.said);
+        reloaded.observe(new AutopilotEvent.GoalChanged("farm", "farm"), T0 + 15_000);
+        reloaded.tick(after, T0 + 15_000);
+        assertEquals(1, after.said.size(), "the cooldown still ends");
+    }
+
+    @Test
     void hurtAboveTenHealthIsNotWorthAComplaint() {
         FakeChatPort port = new FakeChatPort();
         TemplateChat c = chat(1, null);
