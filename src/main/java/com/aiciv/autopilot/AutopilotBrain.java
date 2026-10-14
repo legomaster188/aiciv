@@ -109,7 +109,9 @@ public final class AutopilotBrain {
         lastTick = Math.max(lastTick, tick);
         if (e instanceof AutopilotEvent.Heard h) {
             String me = botName != null ? botName : lastSituation != null ? lastSituation.name() : "";
-            Requests.parse(h.text(), me, h.mentioned(), tick).ifPresent(memory::heard);
+            Requests.parse(h.text(), me, h.mentioned(), tick)
+                    .map(r -> new AutopilotMemory.Request(r.kind(), h.speaker(), r.item(), r.count(), r.tick()))
+                    .ifPresent(memory::heard);
         }
         chat.observe(e, nowMillis);
     }
