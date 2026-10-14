@@ -96,10 +96,18 @@ public final class MineAction implements Action {
         AiPlayer player = ctx.player();
         ServerLevel level = player.level();
         String toolProblem = null;
-        for (BlockPos pos : candidates(ctx)) {
+        List<BlockPos> candidates = candidates(ctx);
+        // The block under its feet comes last, and only with solid ground under it: digging it drops the bot into the hole.
+        BlockPos below = player.blockPosition().below();
+        if (candidates.remove(below) && solidUnder(level, below)) candidates.add(below);
+        for (BlockPos pos : candidates) {
             BlockState state = level.getBlockState(pos);
             if (state.getDestroySpeed(level, pos) < 0) {
                 skip(pos, "can't break " + blockId(state));
+                continue;
+            }
+            if (nextToFluid(level, pos)) {
+                skip(pos, "water or lava next to " + blockId(state));
                 continue;
             }
             if (!canHarvest(player, state)) {
@@ -184,6 +192,11 @@ public final class MineAction implements Action {
             phase = Phase.PICK;
             return ActionStatus.RUNNING;
         }
+        if (target.equals(player.blockPosition().below()) && !solidUnder(level, target)) {
+            skip(target, "it is what I stand on");
+            phase = Phase.PICK;
+            return ActionStatus.RUNNING;
+        }
         BlockPos blocker = Sight.occluder(player, target);
         if (blocker == null) {
             if (!target.equals(tracked)) {
@@ -232,10 +245,21 @@ public final class MineAction implements Action {
         if (state.getDestroySpeed(level, pos) < 0 || !level.mayInteract(player, pos) || level.getBlockEntity(pos) != null) return false;
         if (PlacedBlocks.of(level.getServer()).isPlacedByOther(level, pos, player.getScoreboardName())) return false;
         if (pos.equals(player.blockPosition().below())) return false;
+        return !nextToFluid(level, pos);
+    }
+
+    private static boolean nextToFluid(ServerLevel level, BlockPos pos) {
         for (Direction d : Direction.values()) {
-            if (!level.getFluidState(pos.relative(d)).isEmpty()) return false;
+            if (!level.getFluidState(pos.relative(d)).isEmpty()) return true;
         }
-        return true;
+        return false;
+    }
+
+    /** Solid, dry ground under {@code pos}, so a bot standing on {@code pos} lands on it when {@code pos} is dug out. */
+    private static boolean solidUnder(ServerLevel level, BlockPos pos) {
+        BlockPos under = pos.below();
+        BlockState state = level.getBlockState(under);
+        return !state.isAir() && state.getFluidState().isEmpty() && state.isFaceSturdy(level, under, Direction.UP);
     }
 
     private ActionStatus breakBlock(BotContext ctx) {
