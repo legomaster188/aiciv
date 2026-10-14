@@ -3,6 +3,7 @@ package com.aiciv.autopilot.goal;
 import static com.aiciv.autopilot.Sit.sit;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.aiciv.actions.ActionFactory;
 import com.aiciv.autopilot.AutopilotMemory;
 import com.aiciv.autopilot.Calls;
 import com.aiciv.autopilot.Sit;
@@ -12,9 +13,17 @@ import org.junit.jupiter.api.Test;
 class BeatGameTest {
     private static final Goal BEAT = CoreGoals.list().stream().filter(g -> g.id().equals("beat_game")).findFirst().orElseThrow();
 
+    /**
+     * What the build could do before Milestone 4: the core actions and gear_up, none of the endgame tools. The tests add
+     * the endgame actions they mean to have, so they do not depend on what is registered today.
+     */
+    private static Sit base() {
+        return sit().actions(ActionFactory.coreKeys().toArray(String[]::new)).withActions("gear_up");
+    }
+
     /** Iron tools, all four armor pieces worn and eight bread: only the endgame is left. */
     private static Sit geared() {
-        return sit().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8)
+        return base().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8)
                 .wear("iron_helmet").wear("iron_chestplate").wear("iron_leggings").wear("iron_boots");
     }
 
@@ -79,6 +88,11 @@ class BeatGameTest {
     void aLaterCandidateIsUsedWhenTheFirstIsMissing() {
         PlanResult.Next next = assertInstanceOf(PlanResult.Next.class, plan(geared().withActions("make_portal")));
         assertEquals("make_portal", next.move().calls().get(0).name());
+
+        Sit portal = geared().block("nether_portal", 5);
+        PlanResult.Next viaEnterPortal = assertInstanceOf(PlanResult.Next.class, plan(portal.withActions("enter_portal")));
+        assertEquals("enter_nether", viaEnterPortal.step().id());
+        assertEquals(Calls.of("enter_portal", "kind", "nether"), viaEnterPortal.move().calls().get(0), "go_to_nether is missing");
     }
 
     @Test
@@ -98,14 +112,14 @@ class BeatGameTest {
 
     @Test
     void armorStepsAreSkippedWhenGearUpIsMissing() {
-        Sit bare = sit().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8).without("gear_up");
+        Sit bare = base().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8).without("gear_up");
         PlanResult.Blocked b = assertInstanceOf(PlanResult.Blocked.class, plan(bare));
         assertEquals("nether_portal", b.step().id());
     }
 
     @Test
     void armorIsGatheredFirstWhenGearUpExists() {
-        Sit bare = sit().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8);
+        Sit bare = base().inv("iron_pickaxe", 1).inv("iron_sword", 1).inv("bread", 8);
         PlanResult.Next n = assertInstanceOf(PlanResult.Next.class, plan(bare));
         assertEquals("iron_chestplate", n.step().id());
     }

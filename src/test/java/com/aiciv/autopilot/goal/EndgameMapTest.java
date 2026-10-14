@@ -3,8 +3,13 @@ package com.aiciv.autopilot.goal;
 import static com.aiciv.autopilot.Sit.sit;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.aiciv.actions.ActionFactory;
+import com.aiciv.actions.ToolCatalog;
 import com.aiciv.autopilot.Situation;
+import com.aiciv.llm.ToolCall;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.aiciv.modules.ToolModules;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -96,5 +101,46 @@ class EndgameMapTest {
         Move m = EndgameMap.toStep(fight).next(sit().actions("say").build());
         assertEquals(Move.Kind.BLOCKED, m.kind());
         assertEquals("needs one of fight_dragon, attack (not available yet)", m.why());
+    }
+
+    /**
+     * Every call endgame.json can produce for a registered action must be one the factory builds: right name, argument
+     * names the catalog declares, and values of the declared types. The older guessed aliases are not registered and are
+     * skipped, but every step must have at least one registered way to be done.
+     */
+    @Test
+    void everyRegisteredCandidateBuildsThroughTheFactory() {
+        Situation s = sit().at(12, 40, -7).build();
+        JsonObject declared = new JsonObject(); // normalised name -> declared properties
+        for (JsonElement t : ToolCatalog.tools()) {
+            JsonObject fn = t.getAsJsonObject().getAsJsonObject("function");
+            JsonObject params = fn.has("parameters") ? fn.getAsJsonObject("parameters").getAsJsonObject("properties") : new JsonObject();
+            declared.add(ToolModules.normalise(fn.get("name").getAsString()), params);
+        }
+        for (EndgameMap.Entry e : EndgameMap.load()) {
+            int registered = 0;
+            for (EndgameMap.Candidate c : e.candidates()) {
+                String key = ToolModules.normalise(c.action());
+                if (!ActionFactory.knownKeys().contains(key)) continue;
+                registered++;
+                String where = e.id() + "/" + c.action();
+                JsonObject args = EndgameMap.fill(c.args(), s);
+                assertNotNull(declared.get(key), where + " is not in the tool catalog");
+                for (var arg : args.entrySet()) {
+                    JsonObject prop = declared.getAsJsonObject(key).getAsJsonObject(arg.getKey());
+                    assertNotNull(prop, where + " passes undeclared argument '" + arg.getKey() + "'");
+                    String type = prop.get("type").getAsString();
+                    var value = arg.getValue().getAsJsonPrimitive();
+                    assertTrue(switch (type) {
+                        case "integer" -> value.isNumber();
+                        case "string" -> value.isString();
+                        default -> true;
+                    }, where + " argument '" + arg.getKey() + "' should be " + type + " but is " + value);
+                }
+                ActionFactory.Result r = ActionFactory.create(ToolCall.of(c.action(), args));
+                assertInstanceOf(ActionFactory.Result.Ok.class, r, where + " rejected: " + (r instanceof ActionFactory.Result.Invalid i ? i.reason() : r));
+            }
+            assertTrue(registered > 0, e.id() + " has no candidate the build registers");
+        }
     }
 }
