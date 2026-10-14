@@ -101,6 +101,23 @@ public final class FlyToAction implements Action {
         return Math.max(0, rocketsAtStart - rockets(p));
     }
 
+    /** Stopped mid-air: level out into a plain glide instead of leaving the nose wherever the last command put it. */
+    @Override
+    public void cancel(BotContext ctx) {
+        levelOut(ctx.player());
+    }
+
+    /** A reflex has the bot: it glides on straight and gently down until the flight picks up again. */
+    @Override
+    public void interrupted(BotContext ctx) {
+        levelOut(ctx.player());
+        if (launch != null) launch.interrupted(ctx);
+    }
+
+    private static void levelOut(AiPlayer p) {
+        if (p != null && p.isFallFlying()) p.setXRot(ElytraPilot.GLIDE_PITCH);
+    }
+
     @Override
     public String describe() {
         return summary != null ? summary : "flyTo " + x + " " + z;

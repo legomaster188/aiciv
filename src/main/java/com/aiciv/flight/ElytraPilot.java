@@ -12,6 +12,8 @@ public final class ElytraPilot {
     /** ...or slower than this (blocks per tick). */
     static final double MIN_SPEED = 0.8;
     static final double GROUND_CLEARANCE = 6;
+    /** Nose a little down: a glide of about ten blocks forward for each one lost. */
+    public static final float GLIDE_PITCH = 10f;
 
     /** {@code dx}/{@code dz}: from the bot to the target. {@code groundY}: the top of the terrain under the bot. */
     public record State(double dx, double dz, double y, double groundY, double speed, int rockets, int sinceRocket, double startY) {}
@@ -28,6 +30,6 @@ public final class ElytraPilot {
             return new Command(-20f, true, false);
         }
         if (s.y() - s.groundY() < GROUND_CLEARANCE && s.rockets() == 0) return new Command(0f, false, false);
-        return new Command(10f, false, false); // a glide of about ten blocks forward for each one lost
+        return new Command(GLIDE_PITCH, false, false);
     }
 }

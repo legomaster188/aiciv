@@ -1,6 +1,7 @@
 package com.aiciv.gametest;
 
 import com.aiciv.bot.Bot;
+import com.aiciv.flight.ElytraPilot;
 import com.aiciv.flight.FlyToAction;
 import com.aiciv.flight.ThrowPearlAction;
 import com.aiciv.modules.ToolModules;
@@ -65,6 +66,37 @@ public final class FlightGameTests {
             helper.assertTrue(away <= 16, "landed " + away + " blocks from the target at " + bot.player.position());
             helper.assertTrue(bot.player.isAlive(), "the bot died; " + events);
             helper.assertTrue(!bot.player.isFallFlying(), "still gliding");
+            release.run();
+            GameTestKit.remove(s);
+        });
+    }
+
+    /** Stopped while climbing on a rocket, the bot levels out into a plain glide instead of keeping its nose up. */
+    @GameTest(maxTicks = 300, padding = 24)
+    public void stoppedFlightLevelsOut(GameTestHelper helper) {
+        GameTestKit.clearBarriers(helper, 8);
+        for (int x = -10; x <= 44; x++) for (int z = -10; z <= 44; z++) helper.setBlock(x, 0, z, Blocks.STONE);
+        Runnable release = GameTestKit.keepEntitiesTicking(helper, -10, -10, 44, 44);
+        for (int y = 1; y <= 12; y++) helper.setBlock(2, y, 2, Blocks.STONE);
+        long[] stoppedAt = {-1};
+        GameTestKit.Spawned[] holder = new GameTestKit.Spawned[1];
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestFlyStop", 6.5, 6.5, () -> {
+            Bot b = holder[0] == null ? null : holder[0].bot();
+            if (b == null || stoppedAt[0] >= 0 || !b.player.isFallFlying() || b.player.getXRot() >= 0) return;
+            b.executor.stop(b.context);
+            stoppedAt[0] = helper.getTick();
+        });
+        holder[0] = s;
+        Bot bot = s.bot();
+        bot.player.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.ELYTRA));
+        bot.player.getInventory().add(new ItemStack(Items.FIREWORK_ROCKET, 4));
+        bot.player.moveTo(helper.getLevel(), helper.absoluteVec(new Vec3(2.5, 13, 2.5)), 0f);
+        BlockPos target = helper.absolutePos(new BlockPos(40, 1, 40));
+        bot.executor.replace(List.of(new FlyToAction(target.getX(), target.getZ())), bot.context);
+        helper.succeedWhen(() -> {
+            helper.assertTrue(stoppedAt[0] >= 0, "never climbed: " + GameTestKit.events(bot));
+            helper.assertTrue(helper.getTick() >= stoppedAt[0] + 2, "give it a tick");
+            helper.assertTrue(bot.player.getXRot() == ElytraPilot.GLIDE_PITCH, "pitch " + bot.player.getXRot() + " after the stop");
             release.run();
             GameTestKit.remove(s);
         });
