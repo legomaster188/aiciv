@@ -1,6 +1,7 @@
 package com.aiciv.bot;
 
 import com.aiciv.AiCiv;
+import com.aiciv.autopilot.personality.Personality;
 import com.aiciv.panel.PanelServer;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -20,7 +21,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 
-/** /ai spawn | remove | list | goal | pause | resume | status | budget | model | panel | reload (needs op level 2). */
+/** /ai spawn | remove | list | goal | pause | resume | status | budget | personalities | model | panel | reload (needs op level 2). */
 public final class AiCommands {
     @FunctionalInterface
     private interface BotOp {
@@ -66,6 +67,7 @@ public final class AiCommands {
                                 .executes(c -> pause(c, StringArgumentType.getString(c, "target"), false))))
                 .then(Commands.literal("status").then(botName().executes(c -> lines(c, m -> m.statusLines(name(c))))))
                 .then(Commands.literal("budget").executes(c -> lines(c, BotManager::budgetLines)))
+                .then(Commands.literal("personalities").executes(c -> lines(c, AiCommands::personalityLines)))
                 .then(Commands.literal("model").then(botName()
                         .then(Commands.argument("model", StringArgumentType.word()).suggests(AiCommands::suggestModels)
                                 .executes(c -> run(c, m -> {
@@ -74,6 +76,12 @@ public final class AiCommands {
                                 })))))
                 .then(Commands.literal("panel").executes(AiCommands::panel))
                 .then(Commands.literal("reload").executes(AiCommands::reload)));
+    }
+
+    private static List<String> personalityLines(BotManager m) {
+        List<String> out = new ArrayList<>();
+        for (Personality p : m.personalities().all()) out.add(p.id() + ": " + p.name() + " — " + p.description());
+        return out;
     }
 
     private static RequiredArgumentBuilder<CommandSourceStack, String> botName() {
