@@ -17,7 +17,10 @@ public class StepPlanner {
 
     public PlanResult next(Goal goal, Situation s, AutopilotMemory mem, Tuning t) {
         for (Step step : goal.steps()) {
-            if (step.done(s)) continue;
+            if (step.done(s)) {
+                mem.resetFinishes(goal.id(), step.id()); // it got there: earlier finishes were progress, not a stall
+                continue;
+            }
             Set<String> missing = new TreeSet<>();
             for (String n : step.needs()) if (!s.hasAction(n)) missing.add(n);
             if (!missing.isEmpty()) {

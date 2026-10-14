@@ -9,11 +9,13 @@ import com.aiciv.autopilot.goal.Steps;
 import java.util.List;
 import java.util.Set;
 
-/** Wander one way for five minutes, then another; never finished. */
+/** Wander one way for five minutes, then another; a wander that just ended counts as done for a moment, never as a stall. */
 public final class Explore implements Goal {
     private static final List<String> DIRS8 = List.of("N", "NE", "E", "SE", "S", "SW", "W", "NW");
+    /** How long a finished wander counts as done, so other goals get a look in before the next one. */
+    private static final long REST_TICKS = 100;
 
-    private static final Step WANDER = Steps.of("wander", s -> false, s -> {
+    private static final Step WANDER = Steps.of("wander", s -> s.doneWithin("explore/wander", REST_TICKS), s -> {
         String dir = DIRS8.get((int) ((Math.abs((long) s.name().hashCode()) + s.tick() / 6000) % 8));
         return Move.gather("explore " + dir, Calls.of("explore", "direction", dir, "distance", s.tuning().exploreDistance()));
     }, Set.of("explore"), false, null);

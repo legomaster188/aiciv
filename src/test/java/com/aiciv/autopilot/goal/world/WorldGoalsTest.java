@@ -37,6 +37,7 @@ class WorldGoalsTest {
         final Set<String> tags = new HashSet<>();
         final Set<String> flags = new HashSet<>();
         final List<AutopilotMemory.Request> requests = new ArrayList<>();
+        final Map<String, Long> lastDone = new HashMap<>();
 
         B inv(String id, int n) { inv.put(id, n); return this; }
         B hostile(String label, int distance) { mobs.add(new Sighting(label, 1, distance, "N")); hostiles.add(label); return this; }
@@ -54,7 +55,7 @@ class WorldGoalsTest {
             return new Situation("Ada", "overworld", 0, 64, 0, 20, 20, false, tick, new LinkedHashMap<>(inv), Set.of(), holding,
                     freeSlots, List.of(), List.copyOf(players), List.copyOf(mobs), List.copyOf(hostiles), List.of(),
                     new HashSet<>(tags), List.copyOf(structures), new HashSet<>(ActionFactory.knownKeys()), null, false,
-                    new HashSet<>(flags), new HashMap<>(), List.copyOf(requests), tuning, null);
+                    new HashSet<>(flags), new HashMap<>(lastDone), List.copyOf(requests), tuning, null);
         }
     }
 
@@ -363,5 +364,26 @@ class WorldGoalsTest {
         assertNotEquals(first, arg(call(next("explore", later.build()), 0), "direction"));
         assertEquals(48, call(next("explore", new B().build()), 0).args().get("distance").getAsInt());
         assertEquals(0.6, goal("explore").need(new B().build()));
+    }
+
+    @Test
+    void finishedWandersNeverCountAsAStall() {
+        Goal explore = goal("explore");
+        AutopilotMemory mem = new AutopilotMemory();
+        StepPlanner planner = new StepPlanner();
+        long t = 1000;
+        for (int round = 0; round < 5; round++, t += 1000) {
+            B b = new B();
+            b.tick = t;
+            b.lastDone.putAll(mem.lastDone());
+            PlanResult.Next n = assertInstanceOf(PlanResult.Next.class, planner.next(explore, b.build(), mem, Tuning.DEFAULT), "round " + round);
+            mem.stepStarted("explore", n.step().id(), null, t);
+            mem.outcome("finished: explore N", t + 1, Tuning.DEFAULT.maxRetries());
+            B after = new B();
+            after.tick = t + 2;
+            after.lastDone.putAll(mem.lastDone());
+            assertInstanceOf(PlanResult.Achieved.class, planner.next(explore, after.build(), mem, Tuning.DEFAULT), "a wander just ended");
+        }
+        assertEquals(0, mem.failures("explore", "wander"));
     }
 }
