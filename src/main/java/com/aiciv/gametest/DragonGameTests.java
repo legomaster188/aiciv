@@ -58,7 +58,7 @@ public final class DragonGameTests {
             String events = GameTestKit.events(bot);
             helper.assertTrue(crystal.isRemoved(), "the crystal is still there: " + events);
             helper.assertTrue(events.contains("finished: destroyed 1 crystal (0 left in sight)"), "not finished: " + events);
-            helper.assertTrue(closest[0] >= 9, "the bot came within " + closest[0] + " of the crystal");
+            helper.assertTrue(closest[0] >= 12, "the bot came within " + closest[0] + " of the crystal");
             helper.assertTrue(p.getHealth() >= 14, "health " + p.getHealth());
             GameTestKit.remove(s);
             release.run();

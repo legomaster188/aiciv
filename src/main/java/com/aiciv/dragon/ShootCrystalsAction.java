@@ -21,12 +21,12 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Shoots open (uncaged) end crystals with a bow, nearest first, from at least 9 blocks away: the explosion of a
- * crystal hurts anyone close by. Up to 4 arrows per crystal.
+ * Shoots open (uncaged) end crystals with a bow, nearest first, from at least 12 blocks away: a crystal explodes with
+ * power 6, which hurts anyone within twice that. Up to 4 arrows per crystal.
  */
 public final class ShootCrystalsAction implements Action {
-    static final double SAFE_DISTANCE = 9;
-    static final double BACK_OFF_TO = 11;
+    static final double SAFE_DISTANCE = 12;
+    static final double BACK_OFF_TO = 14;
     static final int MAX_ARROWS_PER_CRYSTAL = 4;
     static final int CHARGE_TICKS = 20;
     static final int MAX_MOVE_FAILURES = 3;
@@ -150,7 +150,7 @@ public final class ShootCrystalsAction implements Action {
         return ActionStatus.RUNNING;
     }
 
-    /** Out of range: steps 8 blocks closer, but no nearer than 10 to the crystal. */
+    /** Out of range: steps 8 blocks closer, but no nearer than 13 to the crystal. */
     private ActionStatus closeIn(BotContext ctx, AiPlayer p, double distance) {
         Vec3 c = target.position();
         double want = Math.max(BACK_OFF_TO - 1, distance - 8);

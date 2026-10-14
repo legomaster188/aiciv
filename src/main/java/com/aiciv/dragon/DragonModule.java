@@ -45,7 +45,7 @@ public final class DragonModule implements ToolModule {
     public List<JsonObject> tools() {
         return List.of(
                 Tools.fn("fight_dragon", "Fight the ender dragon to the end: shoot crystals, break cages, hit its head while it perches, dodge its breath.", null),
-                Tools.fn("shoot_crystals", "Shoot open end crystals with your bow from at least 9 blocks away.",
+                Tools.fn("shoot_crystals", "Shoot open end crystals with your bow from at least 12 blocks away.",
                         Tools.props("count", "integer", "how many, 1 to 10 (default 10)")),
                 Tools.fn("break_cage", "Climb beside a caged end crystal, break the bars, bridge away and shoot it through the gap.", null),
                 Tools.fn("hit_dragon", "Fight the dragon for some seconds: melee its head while it perches, shoot it while it flies.",
