@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
@@ -34,6 +35,27 @@ public final class GameTestKit {
                 }
             }
         }
+    }
+
+    /**
+     * Entities (projectiles, boats, mobs) freeze in a chunk that is loaded but not entity-ticking, and an arena wider
+     * than the test's own chunks reaches into such chunks. Forces every chunk under relative x0..x1, z0..z1; run the
+     * returned release when the test ends.
+     */
+    public static Runnable keepEntitiesTicking(GameTestHelper helper, int x0, int z0, int x1, int z1) {
+        ServerLevel level = helper.getLevel();
+        BlockPos a = helper.absolutePos(new BlockPos(x0, 0, z0)), b = helper.absolutePos(new BlockPos(x1, 0, z1));
+        int cx0 = Math.min(a.getX(), b.getX()) >> 4, cx1 = Math.max(a.getX(), b.getX()) >> 4;
+        int cz0 = Math.min(a.getZ(), b.getZ()) >> 4, cz1 = Math.max(a.getZ(), b.getZ()) >> 4;
+        List<int[]> forced = new ArrayList<>();
+        for (int cx = cx0; cx <= cx1; cx++) {
+            for (int cz = cz0; cz <= cz1; cz++) {
+                if (level.setChunkForced(cx, cz, true)) forced.add(new int[] {cx, cz});
+            }
+        }
+        return () -> {
+            for (int[] c : forced) level.setChunkForced(c[0], c[1], false);
+        };
     }
 
     /** A size x size floor of {@code block} at relative y 0. */

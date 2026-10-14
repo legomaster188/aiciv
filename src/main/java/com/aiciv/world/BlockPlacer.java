@@ -21,7 +21,7 @@ public final class BlockPlacer {
     public enum PlaceResult { PLACED, NO_ITEM, OCCUPIED, NO_SUPPORT, OUT_OF_REACH, NOT_VISIBLE, REFUSED }
 
     /** Below first: bridging and pillaring both lean on the block underneath. */
-    private static final Direction[] FACE_ORDER = {
+    static final Direction[] FACE_ORDER = {
         Direction.DOWN, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST, Direction.UP
     };
 
@@ -43,6 +43,24 @@ public final class BlockPlacer {
         }
         if (!supported) return PlaceResult.NO_SUPPORT;
         if (face == null) return PlaceResult.NOT_VISIBLE;
+        return clickFace(p, level, target, face, item);
+    }
+
+    /**
+     * Like {@link #place}, but only against the neighbour on {@code side} ({@code target.relative(side)}), clicking its
+     * face toward the target: for blocks whose placement depends on the clicked face (wall torches, ladders, buttons).
+     */
+    public static PlaceResult placeAgainst(AiPlayer p, BlockPos target, Direction side, Predicate<ItemStack> item) {
+        ServerLevel level = (ServerLevel) p.level();
+        if (!level.getBlockState(target).canBeReplaced()) return PlaceResult.OCCUPIED;
+        if (!level.mayInteract(p, target)) return PlaceResult.REFUSED;
+        if (level.getBlockState(target.relative(side)).canBeReplaced()) return PlaceResult.NO_SUPPORT;
+        if (!canSeeFace(p, target, side)) return PlaceResult.NOT_VISIBLE;
+        return clickFace(p, level, target, side, item);
+    }
+
+    /** Right-clicks the face of {@code target.relative(face)} that touches the target, sneaking, holding the item. */
+    private static PlaceResult clickFace(AiPlayer p, ServerLevel level, BlockPos target, Direction face, Predicate<ItemStack> item) {
         BlockPos neighbour = target.relative(face);
         Vec3 hit = Vec3.atCenterOf(target).add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
         double reach = p.blockInteractionRange();
@@ -65,7 +83,7 @@ public final class BlockPlacer {
      * Whether a ray from the eyes reaches the neighbour's face that touches the target (aimed just inside the neighbour),
      * so a block is never placed against a face behind a wall. A replaceable plant in the target cell may catch the ray.
      */
-    private static boolean canSeeFace(AiPlayer p, BlockPos target, Direction face) {
+    static boolean canSeeFace(AiPlayer p, BlockPos target, Direction face) {
         Vec3 aim = Vec3.atCenterOf(target).add(face.getStepX() * 0.55, face.getStepY() * 0.55, face.getStepZ() * 0.55);
         BlockHitResult ray = p.level().clip(new ClipContext(p.getEyePosition(), aim, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, p));
         if (ray.getType() != HitResult.Type.BLOCK) return false;
