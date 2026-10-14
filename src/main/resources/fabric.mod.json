@@ -10,7 +10,7 @@
   "mixins": ["aiciv.mixins.json"],
   "entrypoints": {
     "main": ["com.aiciv.AiCiv"],
-    "fabric-gametest": ["com.aiciv.gametest.AiCivGameTests", "com.aiciv.gametest.CombatGameTests", "com.aiciv.gametest.CraftGameTests", "com.aiciv.gametest.ItemActionGameTests", "com.aiciv.gametest.SurvivalGameTests", "com.aiciv.gametest.PanelGameTests", "com.aiciv.gametest.ToolkitGameTests", "com.aiciv.gametest.BuildGameTests", "com.aiciv.gametest.StorageGameTests", "com.aiciv.gametest.CombatMoveGameTests", "com.aiciv.gametest.TradeGameTests", "com.aiciv.gametest.FarmGameTests", "com.aiciv.gametest.UtilityGameTests", "com.aiciv.gametest.GearGameTests", "com.aiciv.gametest.CivGameTests"]
+    "fabric-gametest": ["com.aiciv.gametest.AiCivGameTests", "com.aiciv.gametest.CombatGameTests", "com.aiciv.gametest.CraftGameTests", "com.aiciv.gametest.ItemActionGameTests", "com.aiciv.gametest.SurvivalGameTests", "com.aiciv.gametest.PanelGameTests", "com.aiciv.gametest.ToolkitGameTests", "com.aiciv.gametest.BuildGameTests", "com.aiciv.gametest.StorageGameTests", "com.aiciv.gametest.CombatMoveGameTests", "com.aiciv.gametest.TradeGameTests", "com.aiciv.gametest.FarmGameTests", "com.aiciv.gametest.UtilityGameTests", "com.aiciv.gametest.GearGameTests", "com.aiciv.gametest.CivGameTests", "com.aiciv.gametest.DimensionGameTests", "com.aiciv.gametest.NetherGameTests", "com.aiciv.gametest.StrongholdGameTests", "com.aiciv.gametest.DragonGameTests", "com.aiciv.gametest.VehicleGameTests", "com.aiciv.gametest.FlightGameTests", "com.aiciv.gametest.ItemsGameTests", "com.aiciv.gametest.AnimalGameTests", "com.aiciv.gametest.StationGameTests", "com.aiciv.gametest.RedstoneGameTests", "com.aiciv.gametest.EndgameGameTests"]
   },
   "depends": {
     "fabricloader": ">=0.19.5",

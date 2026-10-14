@@ -1,6 +1,7 @@
 package com.aiciv.actions;
 
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.dimension.Portals;
 import com.aiciv.nav.Navigator;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.KnownBlocks;
@@ -39,5 +40,10 @@ public interface BotContext {
     /** This bot's module memory; null in fakes that keep none. */
     default Attachments attachments() {
         return null;
+    }
+
+    /** The full id of the bot's dimension, e.g. {@code minecraft:the_nether}; the overworld in fakes without a player. */
+    default String dimension() {
+        return player() == null ? "minecraft:overworld" : Portals.key(player().level());
     }
 }

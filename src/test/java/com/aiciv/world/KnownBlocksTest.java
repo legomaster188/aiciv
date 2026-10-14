@@ -91,13 +91,46 @@ class KnownBlocksTest {
     }
 
     @Test
-    void changingDimensionForgetsEverything() {
+    void keepsEachDimension() {
         KnownBlocks known = new KnownBlocks(128);
-        known.enterDimension("overworld");
+        known.enterDimension("minecraft:overworld");
         known.see("iron_ore", new Pos(1, 1, 1), 1);
-        known.enterDimension("overworld");
+        known.enterDimension("minecraft:overworld");
         assertEquals(1, known.size());
-        known.enterDimension("the_nether");
+        known.enterDimension("minecraft:the_nether");
+        assertTrue(known.nearest(l -> true, new Pos(1, 1, 1)).isEmpty());
         assertEquals(0, known.size());
+        known.see("nether_bricks", new Pos(5, 70, 5), 2);
+        known.enterDimension("minecraft:overworld");
+        assertEquals(new Pos(1, 1, 1), known.nearest(l -> l.equals("iron_ore"), new Pos(0, 0, 0)).orElseThrow());
+        assertEquals(1, known.size());
+        // A fourth dimension drops the least recently entered store: now the nether.
+        known.enterDimension("minecraft:the_end");
+        known.enterDimension("aiciv:fourth");
+        known.enterDimension("minecraft:the_nether");
+        assertEquals(0, known.size(), "the nether store was dropped");
+        assertEquals(3, KnownBlocks.MAX_DIMENSIONS);
+    }
+
+    @Test
+    void capsNetherBricks() {
+        KnownBlocks known = new KnownBlocks(128);
+        known.see("gold_ore", new Pos(0, 40, 0), 0);
+        for (int i = 0; i < 12; i++) known.see("nether_bricks", new Pos(10 + i, 40, 0), i + 1);
+        long bricks = known.nearestN(new Pos(0, 40, 0), 1000, 0).stream().filter(e -> e.getValue().equals("nether_bricks")).count();
+        assertEquals(8, bricks);
+        // The four oldest went first.
+        assertEquals(new Pos(14, 40, 0), known.nearest(l -> l.equals("nether_bricks"), new Pos(0, 40, 0)).orElseThrow());
+        assertTrue(known.nearest(l -> l.equals("gold_ore"), new Pos(0, 40, 0)).isPresent());
+    }
+
+    @Test
+    void railsShareOneCap() {
+        assertEquals("rail", KnownBlocks.group("powered_rail"));
+        assertEquals("log", KnownBlocks.group("birch_log"));
+        assertEquals(16, KnownBlocks.cap("obsidian"));
+        KnownBlocks known = new KnownBlocks(128);
+        for (int i = 0; i < 10; i++) known.see(i % 2 == 0 ? "rail" : "detector_rail", new Pos(i, 64, 0), i);
+        assertEquals(8, known.size());
     }
 }

@@ -59,12 +59,20 @@ class ChestMemoryTest {
     }
 
     @Test
-    void changingDimensionForgetsEveryChest() {
+    void keepsEachDimension() {
         ChestMemory memory = new ChestMemory();
         memory.enterDimension("minecraft:overworld");
         memory.seen(new Pos(1, 64, 0), Map.of("dirt", 1), 1);
         memory.enterDimension("minecraft:overworld");
         assertEquals(1, memory.positions().size());
+        memory.enterDimension("minecraft:the_nether");
+        assertTrue(memory.positions().isEmpty());
+        memory.seen(new Pos(9, 70, 9), Map.of("gold_ingot", 3), 2);
+        memory.enterDimension("minecraft:overworld");
+        assertEquals(List.of(new Pos(1, 64, 0)), memory.positions());
+        assertEquals(Map.of("dirt", 1), memory.contents(new Pos(1, 64, 0)).orElseThrow());
+        memory.enterDimension("minecraft:the_end");
+        memory.enterDimension("aiciv:fourth"); // the nether is now the least recently entered and is dropped
         memory.enterDimension("minecraft:the_nether");
         assertTrue(memory.positions().isEmpty());
     }

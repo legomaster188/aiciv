@@ -2,19 +2,28 @@ package com.aiciv.modules;
 
 import com.aiciv.AiCiv;
 import com.aiciv.actions.ActionFactory;
+import com.aiciv.animals.AnimalsModule;
 import com.aiciv.actions.Attachments;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.brain.MenuOption;
 import com.aiciv.brain.OptionMenu;
 import com.aiciv.building.BuildingModule;
 import com.aiciv.combat.CombatModule;
+import com.aiciv.dimension.DimensionModule;
+import com.aiciv.dragon.DragonModule;
 import com.aiciv.farm.FarmModule;
+import com.aiciv.flight.FlightModule;
 import com.aiciv.gear.GearModule;
+import com.aiciv.items.ItemsModule;
+import com.aiciv.nether.NetherModule;
 import com.aiciv.perception.SnapshotData;
 import com.aiciv.perception.SnapshotSection;
+import com.aiciv.stations.StationsModule;
 import com.aiciv.storage.StorageModule;
+import com.aiciv.stronghold.StrongholdModule;
 import com.aiciv.trade.TradeModule;
 import com.aiciv.utility.UtilityModule;
+import com.aiciv.vehicles.VehicleModule;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -32,7 +41,9 @@ import net.minecraft.server.MinecraftServer;
 public final class ToolModules {
     /** Never edited by the feature tasks; they fill their stub instead. */
     public static final List<ToolModule> ALL = List.of(new BuildingModule(), new StorageModule(), new CombatModule(),
-            new TradeModule(), new FarmModule(), new UtilityModule(), new GearModule());
+            new TradeModule(), new FarmModule(), new UtilityModule(), new GearModule(), new DimensionModule(), new NetherModule(),
+            new StrongholdModule(), new DragonModule(), new VehicleModule(), new FlightModule(), new ItemsModule(),
+            new AnimalsModule(), new StationsModule());
 
     /** Module names that already logged a failure, so a module that throws every tick logs once. */
     private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();

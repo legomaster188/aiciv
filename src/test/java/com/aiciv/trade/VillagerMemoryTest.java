@@ -71,13 +71,22 @@ class VillagerMemoryTest {
     }
 
     @Test
-    void changingDimensionForgetsEveryVillager() {
+    void keepsEachDimension() {
         VillagerMemory m = new VillagerMemory();
+        UUID farmer = UUID.randomUUID();
         m.enterDimension("minecraft:overworld");
-        m.seen(UUID.randomUUID(), "farmer", new Pos(2, 64, 0), OFFERS, 1);
+        m.seen(farmer, "farmer", new Pos(2, 64, 0), OFFERS, 1);
         m.enterDimension("minecraft:overworld");
         assertEquals(1, m.size());
         m.enterDimension("minecraft:the_nether");
+        assertEquals(0, m.size());
+        assertFalse(m.knows(farmer));
+        m.enterDimension("minecraft:overworld");
+        assertTrue(m.knows(farmer));
+        m.enterDimension("minecraft:the_nether");
+        m.enterDimension("minecraft:the_end");
+        m.enterDimension("aiciv:fourth"); // the overworld is now the least recently entered and is dropped
+        m.enterDimension("minecraft:overworld");
         assertEquals(0, m.size());
     }
 }

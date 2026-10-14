@@ -76,6 +76,8 @@ public final class LevelBlockView implements BlockView {
                 || s.is(BlockTags.DOORS) || s.is(BlockTags.TRAPDOORS) || s.is(BlockTags.FENCE_GATES)) {
             return Double.POSITIVE_INFINITY;
         }
+        // Portal frames and their obsidian are worth more standing than any shortcut; mining them is a deliberate action.
+        if (s.is(Blocks.OBSIDIAN) || s.is(Blocks.CRYING_OBSIDIAN) || s.is(Blocks.END_PORTAL_FRAME)) return Double.POSITIVE_INFINITY;
         // Someone else built this; a bot walks around it rather than through it.
         if (PlacedBlocks.of(level.getServer()).isPlacedByOther(level, cursor, player.getScoreboardName())) return Double.POSITIVE_INFINITY;
         Double cached = breakTimes.get(s);
@@ -103,6 +105,10 @@ public final class LevelBlockView implements BlockView {
                 || s.is(Blocks.POWDER_SNOW)
                 || s.is(Blocks.CAMPFIRE)
                 || s.is(Blocks.SOUL_CAMPFIRE)
-                || s.is(Blocks.WITHER_ROSE);
+                || s.is(Blocks.WITHER_ROSE)
+                // A path never steps into a portal: only an action that means to cross walks in, by direct movement.
+                || s.is(Blocks.NETHER_PORTAL)
+                || s.is(Blocks.END_PORTAL)
+                || s.is(Blocks.END_GATEWAY);
     }
 }

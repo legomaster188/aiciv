@@ -7,6 +7,7 @@ import com.aiciv.brain.DecisionLog;
 import com.aiciv.brain.Hearing;
 import com.aiciv.brain.ThinkQueue;
 import com.aiciv.config.AiCivConfig;
+import com.aiciv.dimension.Portals;
 import com.aiciv.llm.LlmService;
 import com.aiciv.nav.LevelNavigator;
 import com.aiciv.nav.NavBudget;
@@ -171,6 +172,7 @@ public final class BotManager {
         saveRoster();
         Bot b = join(e);
         b.player.moveTo(level, pos, 0.0F);
+        b.dimension = Portals.key(b.player.level()); // placed there, not a journey
         return b;
     }
 
@@ -309,6 +311,7 @@ public final class BotManager {
                     continue;
                 }
                 if (b.player.isDeadOrDying() || b.brain.paused()) continue;
+                checkDimension(b);
                 b.reflexes.tick(b);
                 b.navigator.tick();
                 String ended = b.executor.tick(b.context);
@@ -317,6 +320,25 @@ public final class BotManager {
                 fault(b.name, "tick", e);
             }
         }
+    }
+
+    /**
+     * A portal, a pearl or a gateway moved the bot to another dimension since the last tick: whatever was steering it
+     * toward old-dimension coordinates stops, and the current action fails unless it is the one crossing over.
+     */
+    private void checkDimension(Bot b) {
+        String now = Portals.key(b.player.level());
+        if (now.equals(b.dimension)) return;
+        b.dimension = now;
+        b.navigator.stop();
+        b.breaker.cancel();
+        b.reflexes.reset(b);
+        b.knownBlocks.enterDimension(now);
+        BlockPos at = b.player.blockPosition();
+        b.brain.note(stamp(), String.format(Locale.ROOT, "you are now in %s at %d %d %d",
+                Portals.shortName(now), at.getX(), at.getY(), at.getZ()));
+        String ended = b.executor.dimensionChanged(b.context, Portals.shortName(now));
+        if (ended != null) b.brain.actionsEnded(stamp(), ended);
     }
 
     /** End of server tick: wake bots and send LLM requests. */
@@ -384,6 +406,7 @@ public final class BotManager {
         b.breaker = breaker;
         b.navigator = new LevelNavigator(player, navBudget, breaker);
         b.context = new LiveContext(this, b); // builds the action breaker for the new player too
+        b.dimension = Portals.key(player.level()); // a respawn is not a journey: no dimension-change event
         b.reflexes.reset(b); // a flee or eat from the old life must not keep the actions paused
         b.brain.actionsEnded(stamp(), String.format(Locale.ROOT, "you died: %s. Your items dropped at %d %d %d",
                 death.message(), death.x(), death.y(), death.z()));
@@ -402,6 +425,7 @@ public final class BotManager {
         BlockBreaker breaker = new BlockBreaker(p);
         Bot b = new Bot(e.name, p, brain, new ActionExecutor(), new LevelNavigator(p, navBudget, breaker), breaker);
         b.context = new LiveContext(this, b);
+        b.dimension = Portals.key(p.level());
         bots.put(key(e.name), b);
         return b;
     }

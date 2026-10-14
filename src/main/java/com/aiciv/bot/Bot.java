@@ -23,6 +23,8 @@ public final class Bot {
     public final Attachments attachments = new Attachments();
     public final ReflexController reflexes = new ReflexController();
     public BotContext context;
+    /** Full id of the dimension the bot was in at the last tick, e.g. {@code minecraft:the_nether}. */
+    public String dimension;
     /** Counts deaths, so a reply asked for in an earlier life is dropped. */
     int life;
         /** Set between a death and the respawn on the next tick. */

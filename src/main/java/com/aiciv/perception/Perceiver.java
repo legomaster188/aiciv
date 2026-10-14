@@ -2,6 +2,7 @@ package com.aiciv.perception;
 
 import com.aiciv.actions.Attachments;
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.dimension.Portals;
 import com.aiciv.modules.ToolModules;
 import com.aiciv.nav.Pos;
 import com.aiciv.world.BlockNames;
@@ -47,7 +48,10 @@ public final class Perceiver {
     private static final int MAX_RAYS = 400;
     private static final Set<String> UTILITY = Set.of(
             "crafting_table", "furnace", "blast_furnace", "smoker", "chest", "trapped_chest", "barrel",
-            "anvil", "enchanting_table", "brewing_stand");
+            "anvil", "enchanting_table", "brewing_stand",
+            "nether_portal", "end_portal", "end_gateway", "end_portal_frame", "spawner", "obsidian", "crying_obsidian",
+            "nether_bricks", "rail", "powered_rail", "detector_rail", "activator_rail", "smithing_table", "stonecutter",
+            "grindstone", "loom", "cartography_table", "lodestone");
 
     private Perceiver() {}
 
@@ -69,7 +73,7 @@ public final class Perceiver {
         BlockPos origin = bot.blockPosition();
         long clock = level.getOverworldClockTime();
         ItemStack held = bot.getInventory().getSelectedItem();
-        known.enterDimension(level.dimension().toString());
+        known.enterDimension(Portals.key(level));
         List<Sighting> blocks = blocks(level, origin, bot.getEyePosition(), known);
         return new SnapshotData(
                 bot.getScoreboardName(), origin.getX(), origin.getY(), origin.getZ(),
@@ -147,7 +151,9 @@ public final class Perceiver {
         void visit(String label, BlockPos pos, int d2, int dx, int dy, int dz);
     }
 
-    private record Candidate(String label, BlockPos pos, int d2, int dx, int dy, int dz, List<Direction> faces, boolean fluid) {}
+    /** {@code seeThrough}: the block has no visual shape (portals, rails), so a sight ray passes through it instead of ending there. */
+    private record Candidate(String label, BlockPos pos, int d2, int dx, int dy, int dz, List<Direction> faces, boolean fluid,
+                             boolean seeThrough) {}
 
     /**
      * Visits, nearest first, blocks in a sphere that the labeller names, that touch air (or water), and that a ray from
@@ -172,7 +178,8 @@ public final class Perceiver {
                     boolean fluid = s.getBlock() instanceof LiquidBlock;
                     List<Direction> faces = exposedFaces(level, p, !fluid);
                     if (faces.isEmpty()) continue;
-                    candidates.add(new Candidate(label, p.immutable(), d2, dx, dy, dz, faces, fluid));
+                    boolean seeThrough = !fluid && s.getVisualShape(level, p, CollisionContext.empty()).isEmpty();
+                    candidates.add(new Candidate(label, p.immutable(), d2, dx, dy, dz, faces, fluid, seeThrough));
                 }
             }
         }
@@ -188,20 +195,22 @@ public final class Perceiver {
     private static boolean visible(ServerLevel level, Vec3 eye, Candidate c, int[] rays) {
         ClipContext.Fluid fluids = c.fluid() ? ClipContext.Fluid.ANY : ClipContext.Fluid.NONE;
         Vec3 centre = Vec3.atCenterOf(c.pos());
-        if (reaches(level, eye, centre, c.pos(), fluids, rays)) return true;
+        if (reaches(level, eye, centre, c, fluids, rays)) return true;
         for (int i = 0; i < Math.min(2, c.faces().size()); i++) {
             Direction d = c.faces().get(i);
             // Aim a little inside the face so the ray ends within the block rather than on its surface.
             Vec3 target = centre.add(d.getStepX() * 0.45, d.getStepY() * 0.45, d.getStepZ() * 0.45);
-            if (reaches(level, eye, target, c.pos(), fluids, rays)) return true;
+            if (reaches(level, eye, target, c, fluids, rays)) return true;
         }
         return false;
     }
 
-    private static boolean reaches(ServerLevel level, Vec3 eye, Vec3 target, BlockPos pos, ClipContext.Fluid fluids, int[] rays) {
+    private static boolean reaches(ServerLevel level, Vec3 eye, Vec3 target, Candidate c, ClipContext.Fluid fluids, int[] rays) {
         rays[0]++;
         BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.VISUAL, fluids, CollisionContext.empty()));
-        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+        // A ray to a point inside a see-through block arrives when nothing on the way stops it.
+        if (c.seeThrough()) return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(c.pos());
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(c.pos());
     }
 
     static List<Sighting> blocks(ServerLevel level, BlockPos origin, Vec3 eye, KnownBlocks known) {
