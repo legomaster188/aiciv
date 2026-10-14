@@ -200,6 +200,69 @@ public final class VehicleGameTests {
         });
     }
 
+    /**
+     * Rides the horse 14 blocks east; {@code whileRiding} runs every tick once the ride is under way (the horse 3 blocks
+     * along). Fails if the bot ever gets off early.
+     */
+    private static void rideWith(GameTestHelper helper, String name, java.util.function.BiConsumer<Bot, Horse> whileRiding,
+                                 java.util.function.BiConsumer<Bot, String> check) {
+        ground(helper, 23, 5);
+        Runnable release = GameTestKit.keepEntitiesTicking(helper, 0, 0, 23, 5);
+        Horse horse = saddledHorse(helper, 3.5f, 2.5f);
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, name, 1.5, 2.5);
+        Bot bot = s.bot();
+        BlockPos target = helper.absolutePos(new BlockPos(17, 1, 2));
+        run(bot, new BoardAction("horse"), new RideToAction(target.getX(), target.getZ()));
+        boolean[] mounted = {false};
+        String[] fellOff = {null};
+        double startX = horse.getX();
+        helper.onEachTick(() -> {
+            if (bot.player.getVehicle() == horse) {
+                mounted[0] = true;
+                if (bot.executor.upNext(RideToAction.class) && horse.getX() - startX > 3) whileRiding.accept(bot, horse);
+            } else if (mounted[0] && fellOff[0] == null && !GameTestKit.events(bot).contains("rode the horse to")) {
+                fellOff[0] = "got off at tick " + helper.getTick() + ": " + GameTestKit.events(bot);
+            }
+        });
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(bot);
+            helper.assertTrue(fellOff[0] == null, String.valueOf(fellOff[0]));
+            helper.assertTrue(events.contains("finished:") && events.contains("rode the horse to"), "not finished: " + events);
+            helper.assertTrue(bot.player.getVehicle() == horse, "no longer riding the horse: " + events);
+            check.accept(bot, events);
+            Riding.dismount(bot.player);
+            horse.discard();
+            GameTestKit.remove(s);
+            release.run();
+        });
+    }
+
+    @GameTest(maxTicks = 1200, padding = 24)
+    public void eatsInTheSaddleWithoutGettingOff(GameTestHelper helper) {
+        boolean[] hungry = {false};
+        rideWith(helper, "TestRideEat", (bot, horse) -> {
+            if (hungry[0]) return;
+            hungry[0] = true;
+            bot.player.getInventory().setItem(5, new ItemStack(Items.BREAD, 4));
+            bot.player.getFoodData().setFoodLevel(10);
+        }, (bot, events) -> helper.assertTrue(events.contains("reflex: ate bread"), "never ate: " + events));
+    }
+
+    @GameTest(maxTicks = 1200, padding = 24)
+    public void hitWhileRidingStaysMounted(GameTestHelper helper) {
+        var husk = helper.spawnWithNoFreeWill(EntityTypes.HUSK, 10.5f, 1.0f, 4.5f);
+        rideWith(helper, "TestRideHit", (bot, horse) -> {
+            // Armed and badly hurt: on foot this is a fight-back, and at 5 health a flight.
+            if (!InventoryOps.has(bot.player, Items.IRON_SWORD, 1)) bot.player.getInventory().setItem(5, new ItemStack(Items.IRON_SWORD));
+            bot.player.setHealth(5f);
+            bot.player.setLastHurtByMob(husk);
+        }, (bot, events) -> {
+            helper.assertTrue(!events.contains("flee") && !events.contains("fled") && !events.contains("fought") && !events.contains("fight"),
+                    "a reflex took over: " + events);
+            husk.discard();
+        });
+    }
+
     @GameTest(maxTicks = 2400, padding = 24)
     public void ridesMinecartOnPoweredRails(GameTestHelper helper) {
         ground(helper, 23, 5);

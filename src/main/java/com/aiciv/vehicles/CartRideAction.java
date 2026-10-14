@@ -48,9 +48,11 @@ final class CartRideAction implements Action {
         if (ctx.player() != null && ctx.player().isPassenger()) Riding.dismount(ctx.player());
     }
 
+    /** A reflex only lets go of the keys; the cart rolls on and the ride carries on afterwards. */
     @Override
     public void interrupted(BotContext ctx) {
-        cancel(ctx);
+        if (ctx.player() != null) Riding.clearInput(ctx.player());
+        still = 0;
     }
 
     @Override

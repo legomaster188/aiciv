@@ -30,6 +30,7 @@ public final class RideToAction implements Action {
     private int timeout = 24000;
     private Vec3 windowStart;
     private int lastJump = -JUMP_EVERY;
+    private boolean restartStuckWindow;
     private String result;
 
     public RideToAction(int x, int z) {
@@ -55,6 +56,12 @@ public final class RideToAction implements Action {
             return ActionStatus.failed("you fell off the " + kind + " at " + at.getX() + " " + at.getY() + " " + at.getZ());
         }
         ticks++;
+        if (restartStuckWindow) {
+            // Standing still while a reflex had the bot is not being stuck.
+            restartStuckWindow = false;
+            windowStart = vehicle.position();
+            ticks = 1;
+        }
         double dx = x + 0.5 - vehicle.getX(), dz = z + 0.5 - vehicle.getZ();
         if (Math.sqrt(dx * dx + dz * dz) <= ARRIVED) {
             Riding.clearInput(p);
@@ -115,9 +122,11 @@ public final class RideToAction implements Action {
         if (ctx.player() != null && ctx.player().isPassenger()) Riding.dismount(ctx.player());
     }
 
+    /** A reflex (eating in the saddle) only lets go of the keys; steering picks up again on the next tick. */
     @Override
     public void interrupted(BotContext ctx) {
-        cancel(ctx);
+        if (ctx.player() != null) Riding.clearInput(ctx.player());
+        if (vehicle != null) restartStuckWindow = true;
     }
 
     @Override

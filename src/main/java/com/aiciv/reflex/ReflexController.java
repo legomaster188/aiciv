@@ -55,7 +55,7 @@ public final class ReflexController {
         if (p.isDeadOrDying()) return;
         BotContext ctx = b.context;
         brainEating = b.executor.upNext(EatAction.class);
-        LivingEntity attacker = recentAttacker(p);
+        LivingEntity attacker = threat(p);
         Reflex wanted = decide(p, attacker);
 
         // Health regenerates while running, which would end the flight after a second; finish it unless
@@ -69,7 +69,7 @@ public final class ReflexController {
                 boolean failed = status.state() != ActionStatus.State.DONE;
                 if (failed) blockedUntil.put(active, p.tickCount + RETRY_TICKS);
                 end(b, failed ? (status.state() == ActionStatus.State.FAILED ? status.reason() : "timed out") : null);
-                attacker = recentAttacker(p);
+                attacker = threat(p);
                 wanted = decide(p, attacker);
             }
         }
@@ -126,6 +126,15 @@ public final class ReflexController {
             if (!s.isEmpty() && (s.has(DataComponents.WEAPON) || s.has(DataComponents.TOOL))) return true;
         }
         return false;
+    }
+
+    /**
+     * The attacker to flee from or fight back, or null. A riding bot does neither: getting off a strider over lava or a
+     * horse in a crowd to run or swing is worse than riding on, so the ride (and the brain) deal with it. Eating in
+     * the saddle stays allowed, as vanilla allows it.
+     */
+    private static LivingEntity threat(AiPlayer p) {
+        return p.isPassenger() ? null : recentAttacker(p);
     }
 
     /** The mob that hurt the bot in the last five seconds, if it is still alive and within 16 blocks. */
