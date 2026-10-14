@@ -14,9 +14,9 @@ public final class ChatPolicy {
 
     /** A loner (social at or below this) only answers, dies and gives. */
     public static final double LONER = -0.7;
-    static final Set<String> LONER_CATEGORIES = Set.of("mention", "died", "give", "refuse", "coming", "thanks");
+    static final Set<String> LONER_CATEGORIES = Set.of("mention", "died", "give", "refuse", "coming", "busy", "thanks");
     private static final Set<String> PRIORITY = Set.of("brag", "died");
-    private static final Set<String> REPLY = Set.of("mention", "give", "refuse", "coming", "thanks");
+    private static final Set<String> REPLY = Set.of("mention", "give", "refuse", "coming", "busy", "thanks");
     static final long REPLY_GAP_MILLIS = 5_000;
     static final long CUE_MAX_AGE_MILLIS = 10_000;
     static final long BANTER_CONSIDER_MILLIS = 1200 * 50L;

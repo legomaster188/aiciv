@@ -47,6 +47,7 @@ public final class PhraseBook {
         m.put("give", Set.of("speaker", "item", "count"));
         m.put("refuse", Set.of("speaker", "item", "count"));
         m.put("coming", Set.of("speaker", "item", "count"));
+        m.put("busy", Set.of("speaker", "item", "count"));
         m.put("thanks", Set.of("speaker"));
         return java.util.Collections.unmodifiableMap(m);
     }

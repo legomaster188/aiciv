@@ -94,4 +94,26 @@ class PhraseBookTest {
             for (String category : PhraseBook.CATEGORIES.keySet()) assertFalse(book.lines(category).isEmpty(), id + "/" + category);
         }
     }
+
+    /** Lines bots say to each other must not be taken as requests; the open ask for help is the one meant as one. */
+    @Test
+    void onlyTheOpenAskForHelpParsesAsARequest() {
+        Map<String, String> samples = new HashMap<>(Map.of("me", "Ada", "other", "Rex", "otherModel", "gpt", "speaker", "Rex",
+                "item", "bread", "count", "3", "goal", "get iron tools", "step", "iron_pickaxe", "attacker", "zombie", "dead", "Rex"));
+        samples.put("message", "Rex fell from a high place");
+        samples.put("personality", "Miner");
+        Set<String> parsed = new java.util.TreeSet<>();
+        for (Personality p : com.aiciv.autopilot.personality.Personalities.defaults().all()) {
+            PhraseBook book = PhraseBook.forPersonality(p);
+            for (String category : PhraseBook.CATEGORIES.keySet()) {
+                for (String line : book.lines(category)) {
+                    String text = Templates.render(line, samples).orElse(null);
+                    if (text == null) continue;
+                    com.aiciv.autopilot.Requests.parse(text, "Rex", text.contains("Rex"), 0)
+                            .ifPresent(r -> parsed.add(category + ": " + line + " -> " + r.kind() + " " + r.item()));
+                }
+            }
+        }
+        assertEquals(Set.of("ask_help: Anyone got a spare {item}? -> GIVE bread"), parsed);
+    }
 }

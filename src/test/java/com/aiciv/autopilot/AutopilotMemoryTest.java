@@ -93,4 +93,41 @@ class AutopilotMemoryTest {
         assertEquals(3, m.requests(2520).size());
         assertEquals(0, m.requests(2521).size());
     }
+
+    @Test
+    void aRequestIsHandledOnlyWhenItsStepFinishesAndRetriedOnceOnFailure() {
+        AutopilotMemory m = new AutopilotMemory();
+        AutopilotMemory.Request bread = new AutopilotMemory.Request("GIVE", "Bob", "bread", 3, 100, true);
+        m.heard(bread);
+        m.stepStarted("social", "request_give", null, 100);
+        m.answering(bread);
+        m.outcome("failed: Bob is too far", 110, 3);
+        assertEquals(List.of(bread), m.requests(110), "one failure: try again");
+        m.stepStarted("social", "request_give", null, 120);
+        m.answering(bread);
+        m.outcome("failed: Bob is too far", 130, 3);
+        assertTrue(m.requests(130).isEmpty(), "two failures: dropped");
+
+        AutopilotMemory.Request apple = new AutopilotMemory.Request("GIVE", "Cy", "apple", 1, 200, true);
+        m.heard(apple);
+        m.stepStarted("social", "request_give", null, 200);
+        m.answering(apple);
+        m.stepStarted("get_food", "bread", null, 205); // replaced before it finished: the request still waits
+        m.outcome("finished: craft bread", 210, 3);
+        assertEquals(List.of(apple), m.requests(210));
+        m.stepStarted("social", "request_give", null, 220);
+        m.answering(apple);
+        m.outcome("finished: give apple", 230, 3);
+        assertTrue(m.requests(230).isEmpty());
+    }
+
+    @Test
+    void aRequestIsAcknowledgedOnce() {
+        AutopilotMemory m = new AutopilotMemory();
+        AutopilotMemory.Request r = new AutopilotMemory.Request("COME", "Bob", "", 1, 100, true);
+        assertFalse(m.acknowledge(r), "not pending");
+        m.heard(r);
+        assertTrue(m.acknowledge(r));
+        assertFalse(m.acknowledge(r));
+    }
 }

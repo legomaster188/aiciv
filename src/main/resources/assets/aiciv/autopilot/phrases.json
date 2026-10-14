@@ -12,14 +12,15 @@
     "night": ["It's getting dark.", "Night already, {me} should be careful.", "Mobs will be out soon.", "Sun's down."],
     "goal": ["New plan: {goal}.", "Time to work on {goal}.", "Okay, {goal} it is.", "Heading off to do {goal}."],
     "give": ["Here you go, {speaker}: {count} {item}.", "Sending {count} {item} your way, {speaker}.", "{count} {item} for you, {speaker}."],
-    "refuse": ["Sorry {speaker}, I can't spare {item}.", "No can do, {speaker}.", "I need my {item} myself, {speaker}."],
+    "refuse": ["Sorry {speaker}, I can't spare {item}.", "No can do, {speaker}.", "I'm keeping my {item}, {speaker}."],
     "coming": ["On my way, {speaker}!", "Coming, {speaker}.", "Hold on {speaker}, I'm coming."],
+    "busy": ["Busy right now, {speaker}. Ask me later.", "Can't right now, {speaker}, maybe later.", "Give me a bit, {speaker}, I'm in the middle of something."],
     "thanks": ["Thanks, {speaker}!", "Much appreciated, {speaker}.", "You're the best, {speaker}."]
   },
   "default": {
     "greet": ["Hello there, {other}.", "{me} reporting in.", "Hi everyone."],
     "brag": ["I made a {item}.", "Got a {item} at last.", "A {item}, finally."],
-    "banter": ["Hello {other}, running {otherModel}, I hear.", "{other}, got any tips?", "Busy day, {other}?"],
+    "banter": ["Hello {other}, running {otherModel}, I hear.", "{other}, any tips for me?", "Busy day, {other}?"],
     "mention": ["Hi {speaker}, what do you need?", "Yes, {speaker}?", "I'm listening, {speaker}."]
   },
   "miner": {

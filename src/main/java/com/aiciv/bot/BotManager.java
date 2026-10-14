@@ -548,6 +548,8 @@ public final class BotManager {
         long now = clock.millis();
         String stamp = stamp();
         boolean speakerIsAi = exclude != null || server.getPlayerList().getPlayerByName(speaker) instanceof AiPlayer;
+        Bot speakingBot = exclude != null ? exclude : bots.get(key(speaker));
+        boolean speakerIsAutopilot = speakingBot != null && speakingBot.autopilot != null;
         for (Bot b : List.copyOf(bots.values())) {
             if (b == exclude) continue;
             boolean mentioned = Hearing.mentions(text, b.name);
@@ -555,7 +557,7 @@ public final class BotManager {
             if (!Hearing.hears(d2, config.hearingRange, mentioned)) continue;
             b.brain.hearChat(stamp, speaker, text, mentioned, now);
             if (b.autopilot != null) {
-                b.autopilot.observe(new AutopilotEvent.Heard(speaker, text, mentioned, speakerIsAi), server.getTickCount(), now);
+                b.autopilot.observe(new AutopilotEvent.Heard(speaker, text, mentioned, speakerIsAi, speakerIsAutopilot), server.getTickCount(), now);
             }
         }
     }

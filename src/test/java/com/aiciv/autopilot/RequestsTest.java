@@ -64,6 +64,22 @@ class RequestsTest {
     }
 
     @Test
+    void fillerWordsAreNotPartOfTheItem() {
+        assertEquals("bread", parse("anyone got a spare bread?", false).orElseThrow().item());
+        assertEquals("iron_ingot", parse("TestBot can i have some spare iron ingot", true).orElseThrow().item());
+        assertEquals("apple", parse("TestBot give me any apple", true).orElseThrow().item());
+        assertTrue(parse("anyone got any spare", false).isEmpty(), "nothing is left to ask for");
+    }
+
+    @Test
+    void theBotsNameIsCutOnlyAsAWholeWord() {
+        AutopilotMemory.Request r = Requests.parse("Al give me 2 salmon", "Al", true, 5).orElseThrow();
+        assertEquals("salmon", r.item());
+        assertEquals(2, r.count());
+        assertEquals("all", Requests.parse("anyone got all", "Al", false, 5).orElseThrow().item());
+    }
+
+    @Test
     void chatterIsNotARequest() {
         assertTrue(parse("TestBot nice house", true).isEmpty());
         assertTrue(parse("", true).isEmpty());

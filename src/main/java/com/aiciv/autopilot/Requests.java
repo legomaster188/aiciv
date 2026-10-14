@@ -1,7 +1,10 @@
 package com.aiciv.autopilot;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -24,23 +27,33 @@ public final class Requests {
     public static Optional<AutopilotMemory.Request> parse(String text, String botName, boolean mentioned, long tick) {
         if (text == null) return Optional.empty();
         String t = text.toLowerCase(Locale.ROOT);
-        if (botName != null && !botName.isBlank()) t = t.replace(botName.toLowerCase(Locale.ROOT), " ");
+        if (botName != null && !botName.isBlank()) {
+            // a whole word only: a bot called "Al" must not cut "all" or "salmon" apart
+            t = t.replaceAll("(?<![a-z0-9_])" + Pattern.quote(botName.toLowerCase(Locale.ROOT)) + "(?![a-z0-9_])", " ");
+        }
         t = t.replaceAll("[@,.!?]", " ").replaceAll("\\s+", " ").trim();
         if (t.isEmpty()) return Optional.empty();
 
         Matcher m = GIVE_ME.matcher(t);
-        if (m.matches()) return mentioned ? Optional.of(give(m, tick)) : Optional.empty();
+        if (m.matches()) return mentioned ? give(m, tick) : Optional.empty();
         m = WANT.matcher(t);
         if (m.matches()) {
             boolean open = t.startsWith("anyone") || t.startsWith("got any");
-            return mentioned || open ? Optional.of(give(m, tick)) : Optional.empty();
+            return mentioned || open ? give(m, tick) : Optional.empty();
         }
         if (COME_HERE.matcher(t).matches()) return mentioned ? Optional.of(new AutopilotMemory.Request(COME, "", "", 1, tick)) : Optional.empty();
         if (FOLLOW_ME.matcher(t).matches()) return mentioned ? Optional.of(new AutopilotMemory.Request(FOLLOW, "", "", 1, tick)) : Optional.empty();
         return Optional.empty();
     }
 
-    private static AutopilotMemory.Request give(Matcher m, long tick) {
+    /** Words that say how much or which one, not what: "a spare apple" is an apple. */
+    private static final Set<String> FILLERS = Set.of("spare", "some", "any", "a", "an", "more", "extra", "few");
+
+    /** None when nothing is left of the item once the filler words are gone. */
+    private static Optional<AutopilotMemory.Request> give(Matcher m, long tick) {
+        List<String> words = new ArrayList<>();
+        for (String w : m.group(2).trim().split(" +")) if (!FILLERS.contains(w)) words.add(w);
+        if (words.isEmpty()) return Optional.empty();
         int count = 1;
         if (m.group(1) != null) {
             try {
@@ -49,6 +62,6 @@ public final class Requests {
                 count = 16; // more digits than an int
             }
         }
-        return new AutopilotMemory.Request(GIVE, "", m.group(2).trim().replace(' ', '_'), count, tick);
+        return Optional.of(new AutopilotMemory.Request(GIVE, "", String.join("_", words), count, tick));
     }
 }

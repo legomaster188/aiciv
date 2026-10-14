@@ -23,6 +23,8 @@ public final class Sit {
     private String holding;
     private final List<Sighting> blocks = new ArrayList<>();
     private final List<Sighting> mobs = new ArrayList<>();
+    private final List<String> hostiles = new ArrayList<>();
+    private final List<AutopilotMemory.Request> requests = new ArrayList<>();
     private final List<String> remembered = new ArrayList<>();
     private final Set<String> tags = new HashSet<>();
     private final Set<String> actions = new HashSet<>(ActionFactory.knownKeys());
@@ -38,6 +40,9 @@ public final class Sit {
     public Sit hold(String id) { holding = id; return this; }
     public Sit block(String label, int distance) { blocks.add(new Sighting(label, 1, distance, "N")); return this; }
     public Sit mob(String label, int count, int distance, String direction) { mobs.add(new Sighting(label, count, distance, direction)); return this; }
+    public Sit hostile(String label, int distance) { mobs.add(new Sighting(label, 1, distance, "N")); hostiles.add(label); return this; }
+    public Sit requests(List<AutopilotMemory.Request> r) { requests.clear(); requests.addAll(r); return this; }
+    public Sit name(String n) { name = n; return this; }
     public Sit remember(String line) { remembered.add(line); return this; }
     public Sit tag(String t) { tags.add(t); return this; }
     public Sit flag(String f) { flags.add(f); return this; }
@@ -67,8 +72,8 @@ public final class Sit {
 
     public Situation build() {
         return new Situation(name, dimension, x, y, z, health, food, night, tick, new LinkedHashMap<>(inventory), new HashSet<>(worn),
-                holding, 30, List.copyOf(blocks), List.of(), List.copyOf(mobs), List.of(), List.copyOf(remembered),
+                holding, 30, List.copyOf(blocks), List.of(), List.copyOf(mobs), List.copyOf(hostiles), List.copyOf(remembered),
                 new HashSet<>(tags), List.of(), new HashSet<>(actions), null, false, new HashSet<>(flags), new HashMap<>(),
-                List.of(), tuning, null);
+                List.copyOf(requests), tuning, null);
     }
 }

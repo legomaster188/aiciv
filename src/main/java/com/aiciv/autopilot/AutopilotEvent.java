@@ -4,7 +4,12 @@ package com.aiciv.autopilot;
 public sealed interface AutopilotEvent {
     record Spawned() implements AutopilotEvent {}
 
-    record Heard(String speaker, String text, boolean mentioned, boolean speakerIsAi) implements AutopilotEvent {}
+    /** {@code speakerIsAi}: any bot spoke; {@code speakerIsAutopilot}: an autopilot bot did (its lines come from templates). */
+    record Heard(String speaker, String text, boolean mentioned, boolean speakerIsAi, boolean speakerIsAutopilot) implements AutopilotEvent {
+        public Heard(String speaker, String text, boolean mentioned, boolean speakerIsAi) {
+            this(speaker, text, mentioned, speakerIsAi, false);
+        }
+    }
 
     record Hurt(String attacker, int health) implements AutopilotEvent {}
 

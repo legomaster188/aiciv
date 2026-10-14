@@ -4,7 +4,9 @@ import com.aiciv.autopilot.goal.Goal;
 import com.aiciv.autopilot.goal.GoalLibrary;
 import com.aiciv.autopilot.personality.Personality;
 import com.aiciv.llm.ToolCall;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -57,6 +59,7 @@ public final class AutopilotBrain {
             String summary = GoalLibrary.byId(d.goal()).map(Goal::summary).orElse(d.goal());
             chat.observe(new AutopilotEvent.GoalChanged(d.goal(), summary), nowMillis);
         }
+        acknowledgeRequests(d, tick, nowMillis);
         Optional<AutopilotMemory.InFlight> running = memory.inFlight();
         if (s.busy() && !"ACTION_ENDED".equals(trigger) && running.isPresent()
                 && Objects.equals(running.get().goal(), d.goal()) && Objects.equals(running.get().step(), d.step())
@@ -70,11 +73,35 @@ public final class AutopilotBrain {
         }
         if (d.step() != null && d.step().startsWith("request_")) {
             List<AutopilotMemory.Request> pending = memory.requests(tick);
-            if (!pending.isEmpty()) memory.handled(pending.get(0));
+            if (!pending.isEmpty()) {
+                // a refusal has nothing to wait for; a give, come or follow counts once its action finished
+                if (d.calls().isEmpty()) memory.handled(pending.get(0));
+                else memory.answering(pending.get(0));
+            }
         }
         for (ChatCue cue : d.cues()) chat.cue(cue, nowMillis);
         lastThought = d.thought();
         return d;
+    }
+
+    /**
+     * A person whose request this decision does not answer hears "busy, ask later" once, or a refusal from a bot that
+     * never helps (that request is then dropped), instead of silence.
+     */
+    private void acknowledgeRequests(Decision d, long tick, long nowMillis) {
+        if ("social".equals(d.goal())) return;
+        for (AutopilotMemory.Request r : memory.requests(tick)) {
+            if (!r.human() || !memory.acknowledge(r)) continue;
+            Map<String, String> vars = new HashMap<>();
+            vars.put("speaker", r.from());
+            if (r.item() != null && !r.item().isBlank()) vars.put("item", r.item().replace('_', ' '));
+            if (tuning.helpsWhenAsked()) {
+                chat.cue(new ChatCue("busy", vars, true), nowMillis);
+            } else {
+                chat.cue(new ChatCue("refuse", vars, true), nowMillis);
+                memory.handled(r);
+            }
+        }
     }
 
     private static boolean sameCalls(List<ToolCall> a, List<ToolCall> b) {
@@ -107,10 +134,11 @@ public final class AutopilotBrain {
     /** Heard lines may be requests, which go to memory; every event goes to the chat. */
     public void observe(AutopilotEvent e, long tick, long nowMillis) {
         lastTick = Math.max(lastTick, tick);
-        if (e instanceof AutopilotEvent.Heard h) {
+        // an autopilot's open "anyone got…?" is one of its chat templates, not something to answer
+        if (e instanceof AutopilotEvent.Heard h && !(h.speakerIsAutopilot() && !h.mentioned())) {
             String me = botName != null ? botName : lastSituation != null ? lastSituation.name() : "";
             Requests.parse(h.text(), me, h.mentioned(), tick)
-                    .map(r -> new AutopilotMemory.Request(r.kind(), h.speaker(), r.item(), r.count(), r.tick()))
+                    .map(r -> new AutopilotMemory.Request(r.kind(), h.speaker(), r.item(), r.count(), r.tick(), !h.speakerIsAi()))
                     .ifPresent(memory::heard);
         }
         chat.observe(e, nowMillis);

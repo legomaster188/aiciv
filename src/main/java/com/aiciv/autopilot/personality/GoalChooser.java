@@ -11,6 +11,9 @@ import java.util.List;
 public final class GoalChooser {
     /** Goals below this utility are not worth starting. */
     static final double MIN_UTILITY = 0.05;
+    /** A person's request outranks every goal (a pinned one too); only retreat, hunger, the night and danger come first. */
+    static final double HUMAN_REQUEST_UTILITY = 3.0;
+    private static final int DANGER_RANGE = 8;
 
     public record Scored(Goal goal, double utility) {}
 
@@ -29,9 +32,17 @@ public final class GoalChooser {
             double u = w * need;
             if (id.equals(mem.goal()) && need > 0) u += t.hysteresis();
             if (id.equals(s.pinnedGoal())) u += 1.0;
+            if (id.equals("social") && t.helpsWhenAsked() && need > 0 && humanAsked(s) && s.nearestHostile(DANGER_RANGE).isEmpty()) {
+                u = Math.max(u, HUMAN_REQUEST_UTILITY);
+            }
             if (u >= MIN_UTILITY) out.add(new Scored(g, u));
         }
         out.sort((a, b) -> Double.compare(b.utility(), a.utility())); // stable: ties keep the library order
         return out;
+    }
+
+    private static boolean humanAsked(Situation s) {
+        for (AutopilotMemory.Request r : s.requests()) if (r.human()) return true;
+        return false;
     }
 }

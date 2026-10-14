@@ -15,8 +15,12 @@ import java.util.Set;
 public final class AutopilotMemory {
     public record InFlight(String goal, String step, String flag, long tick) {}
 
-    /** kind GIVE, COME or FOLLOW. */
-    public record Request(String kind, String from, String item, int count, long tick) {}
+    /** kind GIVE, COME or FOLLOW; {@code human} when a person (not a bot) asked. */
+    public record Request(String kind, String from, String item, int count, long tick, boolean human) {
+        public Request(String kind, String from, String item, int count, long tick) {
+            this(kind, from, item, count, tick, false);
+        }
+    }
 
     static final long REQUEST_TTL_TICKS = 2400;
     static final int MAX_REQUESTS = 4;
@@ -38,6 +42,11 @@ public final class AutopilotMemory {
     private final Map<String, Long> lastDone = new HashMap<>();
     private final Set<String> bragged = new HashSet<>();
     private final List<Request> requests = new ArrayList<>();
+    /** Requests already answered with "busy" or a refusal, so that is said once. */
+    private final Set<Request> acknowledged = new HashSet<>();
+    /** The request the step in flight answers, and how often answering it failed. */
+    private Request answering;
+    private final Map<Request, Integer> answerFailures = new HashMap<>();
 
     private static String key(String goal, String step) {
         return goal + "/" + step;
@@ -65,6 +74,7 @@ public final class AutopilotMemory {
             stalls.remove(lastStarted);
         }
         lastStarted = k;
+        answering = null;
         current(goal, step);
         inFlight = new InFlight(goal, step, flag, tick);
     }
@@ -80,7 +90,10 @@ public final class AutopilotMemory {
     public void outcome(String summary, long tick, int maxRetries) {
         InFlight f = inFlight;
         inFlight = null;
+        Request r = answering;
+        answering = null;
         if (f == null || summary == null) return;
+        if (r != null) answered(r, summary.startsWith("finished"));
         String k = key(f.goal(), f.step());
         if (summary.startsWith("finished")) {
             failures.remove(k);
@@ -167,11 +180,30 @@ public final class AutopilotMemory {
     /** Pending requests, oldest first; drops those older than {@value #REQUEST_TTL_TICKS} ticks. */
     public List<Request> requests(long tick) {
         requests.removeIf(r -> tick - r.tick() > REQUEST_TTL_TICKS);
+        acknowledged.retainAll(requests);
+        answerFailures.keySet().retainAll(requests);
         return List.copyOf(requests);
     }
 
     public void handled(Request r) {
         requests.remove(r);
+        acknowledged.remove(r);
+        answerFailures.remove(r);
+    }
+
+    /** The step just started answers {@code r}: it is handled once that step finishes (see {@link #outcome}). */
+    public void answering(Request r) {
+        answering = r;
+    }
+
+    /** A finished answer handles the request; a failed one is tried once more, then the request is dropped. */
+    private void answered(Request r, boolean finished) {
+        if (finished || answerFailures.merge(r, 1, Integer::sum) >= 2) handled(r);
+    }
+
+    /** True the first time it is asked for {@code r}: the bot says "busy" or refuses once per request. */
+    public boolean acknowledge(Request r) {
+        return requests.contains(r) && acknowledged.add(r);
     }
 
     public static long backoffTicks(int n) {
