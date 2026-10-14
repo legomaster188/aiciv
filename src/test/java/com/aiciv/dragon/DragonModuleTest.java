@@ -13,6 +13,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 class DragonModuleTest {
@@ -95,5 +96,20 @@ class DragonModuleTest {
         for (MenuOption o : options) {
             for (ToolCall call : o.calls()) assertInstanceOf(ActionFactory.Result.Ok.class, ActionFactory.create(call));
         }
+    }
+
+    @Test
+    void endScanIsReusedForFortyTicks() {
+        DragonModule.EndScan cache = new DragonModule.EndScan();
+        int[] scans = {0};
+        Supplier<List<SnapshotSection>> scan = () -> {
+            scans[0]++;
+            return List.of(new SnapshotSection("Dragon", List.of("scan " + scans[0]), null, List.of()));
+        };
+        assertEquals("scan 1", cache.get(100, scan).get(0).items().get(0));
+        assertEquals("scan 1", cache.get(139, scan).get(0).items().get(0));
+        assertEquals(1, scans[0]);
+        assertEquals("scan 2", cache.get(140, scan).get(0).items().get(0));
+        assertEquals("scan 3", cache.get(5, scan).get(0).items().get(0), "a clock that went back (another world) scans again");
     }
 }

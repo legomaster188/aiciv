@@ -22,6 +22,7 @@ import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
@@ -86,6 +87,28 @@ public final class DragonModule implements ToolModule {
     @Override
     public List<SnapshotSection> sections(AiPlayer bot, Attachments memory) {
         if (!Portals.key(bot.level()).equals("minecraft:the_end")) return List.of();
+        return memory.get(EndScan.class, EndScan::new).get(bot.level().getGameTime(), () -> scan(bot));
+    }
+
+    /**
+     * One bot's last End scan (the dragon, every crystal and a block search for the exit portal), reused for
+     * {@link #SCAN_TICKS} ticks: snapshots come often and the scan is not cheap.
+     */
+    static final class EndScan {
+        static final int SCAN_TICKS = 40;
+        private long tick;
+        private List<SnapshotSection> sections;
+
+        List<SnapshotSection> get(long now, Supplier<List<SnapshotSection>> scan) {
+            if (sections == null || now - tick >= SCAN_TICKS || now < tick) {
+                sections = scan.get();
+                tick = now;
+            }
+            return sections;
+        }
+    }
+
+    private static List<SnapshotSection> scan(AiPlayer bot) {
         List<String> items = new ArrayList<>();
         List<String> tags = new ArrayList<>();
         EnderDragon dragon = DragonView.dragon(bot).orElse(null);
