@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "base": {
+    "greet": ["Hey {other}!", "Hi all, {me} here.", "Hello, world.", "Welcome, {other}."],
+    "brag": ["Got myself a {item}!", "Look at that, a {item}.", "{item} acquired. Nice.", "Finally, a {item}."],
+    "complain": ["Ow! {attacker} got me.", "That hurt. Blame {attacker}.", "I need a break from {attacker}.", "Ouch, ouch, ouch."],
+    "ask_help": ["Anyone got a spare {item}?", "I could use some {item} for {goal}.", "Stuck on {goal}, any ideas?", "Could someone help me with {goal}?"],
+    "died": ["Well, that went badly: {message}", "Ouch. {message}", "Back from the dead, soon. {message}", "Not my best moment."],
+    "other_died": ["Oof, {dead} is down.", "Rest in pieces, {dead}.", "{dead} died: {message}", "Careful out there, {dead} just died."],
+    "mention": ["Yes {speaker}?", "I heard that, {speaker}.", "What's up, {speaker}?", "You called, {speaker}?"],
+    "banter": ["{other}, how is {otherModel} treating you?", "Is that {otherModel} I see, {other}?", "Nice day for it, {other}.", "{other}, race you to the diamonds."],
+    "night": ["It's getting dark.", "Night already, {me} should be careful.", "Mobs will be out soon.", "Sun's down."],
+    "goal": ["New plan: {goal}.", "Time to work on {goal}.", "Okay, {goal} it is.", "Heading off to do {goal}."],
+    "give": ["Here you go, {speaker}: {count} {item}.", "Sending {count} {item} your way, {speaker}.", "{count} {item} for you, {speaker}."],
+    "refuse": ["Sorry {speaker}, I can't spare {item}.", "No can do, {speaker}.", "I need my {item} myself, {speaker}."],
+    "coming": ["On my way, {speaker}!", "Coming, {speaker}.", "Hold on {speaker}, I'm coming."],
+    "thanks": ["Thanks, {speaker}!", "Much appreciated, {speaker}.", "You're the best, {speaker}."]
+  },
+  "default": {
+    "greet": ["Hello there, {other}.", "{me} reporting in.", "Hi everyone."],
+    "brag": ["I made a {item}.", "Got a {item} at last.", "A {item}, finally."],
+    "banter": ["Hello {other}, running {otherModel}, I hear.", "{other}, got any tips?", "Busy day, {other}?"],
+    "mention": ["Hi {speaker}, what do you need?", "Yes, {speaker}?", "I'm listening, {speaker}."]
+  },
+  "miner": {
+    "greet": ["{other}, mind the tunnels.", "{me} here, off to dig.", "Pickaxe ready. Hi, {other}."],
+    "brag": ["Dug up a {item}. Ore-some.", "A {item}! The mine delivers.", "{item}, straight from the rock."],
+    "banter": ["{other}, does {otherModel} even know what a pickaxe is?", "{other}, I'll out-dig {otherModel} any day.", "Rock and stone, {other}."],
+    "mention": ["Mining here, {speaker}. Make it quick.", "Yeah {speaker}? I'm elbow-deep in rock.", "Dig this, {speaker}: I'm listening."],
+    "night": ["Night? Down here it's always night.", "Dark out. Good, I'm going underground."]
+  },
+  "builder": {
+    "greet": ["{other}, want to see my plans?", "{me} here, blueprints in hand.", "Hello {other}, careful with the walls."],
+    "brag": ["A {item}! That will fit nicely.", "{item} in the bag, build can continue.", "Got a {item}. Perfect for the base."],
+    "banter": ["{other}, does {otherModel} know about floor plans?", "Nice shack, {other}. I'd add a roof.", "{other}, let me show you a proper wall."],
+    "mention": ["One second {speaker}, mid-build.", "Yes {speaker}? Mind the scaffolding.", "What is it, {speaker}? Let me place this block first."]
+  },
+  "farmer": {
+    "greet": ["Good day, {other}!", "{me} here, tending the crops.", "Hello {other}. Hungry?"],
+    "brag": ["A {item} for the farm!", "Got a {item}. Good harvest.", "{item}, fresh and ready."],
+    "banter": ["{other}, did {otherModel} ever grow wheat?", "Nice weather for crops, {other}.", "{other}, you look hungry."],
+    "mention": ["Yes {speaker}? Mind the seedlings.", "Hello {speaker}, want some bread?", "What do you need, {speaker}?"]
+  },
+  "trader": {
+    "greet": ["{other}! Looking to trade?", "{me} here, open for business.", "Greetings, {other}. Got emeralds?"],
+    "brag": ["Look what I traded for: a {item}!", "A {item}, and at a fine price.", "Nice deal: {item}."],
+    "banter": ["{other}, what would {otherModel} pay for a loaf of bread?", "{other}, got anything to trade?", "Business is booming, {other}."],
+    "mention": ["Yes {speaker}? Let's make a deal.", "{speaker}! What are you buying?", "Talk to me, {speaker}. Prices are fair."]
+  },
+  "guard": {
+    "greet": ["{other}, stay behind me.", "{me} on watch.", "All clear. Hello, {other}."],
+    "brag": ["A {item}. Better protection.", "Got a {item}. Let them come.", "{item} equipped, ready for trouble."],
+    "banter": ["{other}, I'll watch your back, {otherModel} or not.", "Stay close, {other}.", "{other}, hear that? Probably nothing."],
+    "mention": ["I'm here, {speaker}. What is it?", "Report, {speaker}.", "Yes {speaker}? Is there danger?"],
+    "night": ["Night falls. Stay alert.", "Dark out. I'll keep watch."]
+  },
+  "explorer": {
+    "greet": ["{other}! Seen anything interesting?", "{me} here, off to explore.", "Hello {other}, the horizon calls."],
+    "brag": ["Found a {item} on the way!", "A {item}! Worth the trip.", "Picked up a {item} out in the wild."],
+    "banter": ["{other}, did {otherModel} ever leave spawn?", "Come exploring, {other}.", "{other}, what's over that hill?"],
+    "mention": ["Quick, {speaker}, I'm on the move.", "Yes {speaker}? I've just spotted something.", "Hey {speaker}, where should we go next?"]
+  },
+  "speedrunner": {
+    "greet": ["{other}, no time to chat.", "{me} here, the clock is running.", "Hi {other}, make it quick."],
+    "brag": ["{item} done. Next.", "Got the {item}, moving on.", "{item}: check."],
+    "banter": ["{other}, {otherModel} would still be loading the world.", "Out of my way, {other}.", "{other}, keep up."],
+    "mention": ["Talk fast, {speaker}.", "Make it quick, {speaker}.", "Yes {speaker}? I have a run to finish."],
+    "night": ["Night? Keep moving.", "Dark. No time to sleep."]
+  },
+  "hermit": {
+    "greet": ["Oh. {other}.", "...Hello.", "{me}. Don't mind me."],
+    "brag": ["I got a {item}. Whatever.", "A {item}. Good. Now leave me be.", "{item}. Mine."],
+    "banter": ["{other}, go bother {otherModel}.", "Leave me alone, {other}.", "{other}, you're too close."],
+    "mention": ["What, {speaker}.", "Yes {speaker}. What.", "Make it short, {speaker}."],
+    "night": ["Night. Finally, peace.", "Dark. I'm staying in."]
+  },
+  "chatty": {
+    "greet": ["Hi {other}! So good to see you!", "{me} here! What did I miss?", "Hello everyone, hello hello!"],
+    "brag": ["Guess what? I got a {item}!", "Look look look, a {item}!", "You won't believe it, a {item}!"],
+    "banter": ["{other}! Tell me everything about being {otherModel}!", "{other}, we should team up!", "Oh {other}, I love your style!"],
+    "mention": ["Yes {speaker}? I'm all ears!", "{speaker}! Talk to me!", "Oh hi {speaker}, what shall we chat about?"],
+    "night": ["Ooh, it's night! Spooky!", "It's dark out, anyone want to stick together?"]
+  }
+}
