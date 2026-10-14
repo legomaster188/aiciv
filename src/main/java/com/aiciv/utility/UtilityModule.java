@@ -43,7 +43,7 @@ public final class UtilityModule implements ToolModule {
         brew.add("count", Tools.prop("integer", "bottles to brew, 1 to 3; default 1"));
         return List.of(
                 Tools.fn("sleep", "Sleep in a nearby bed (places a bed you carry) until morning. Only works at night or in a thunderstorm.", null),
-                Tools.fn("use_block", "Press a button, flip a lever, open or close a door, trapdoor or fence gate, or ring a bell at x y z.", xyz, "x", "y", "z"),
+                Tools.fn("use_block", "Press a button, flip a lever, open or close a door, trapdoor or fence gate, ring a bell, or tune a repeater, comparator or daylight detector at x y z.", xyz, "x", "y", "z"),
                 Tools.fn("enchant", "Enchant a held item at an enchanting table nearby. Costs lapis lazuli and experience levels equal to the option.", enchant, "item"),
                 Tools.fn("brew", "Brew potions at a brewing stand: awkward potions first, then real ones. Needs blaze_powder fuel, bottles and the ingredient.", brew, "potion"));
     }
@@ -82,7 +82,7 @@ public final class UtilityModule implements ToolModule {
 
     @Override
     public List<String> guideLines() {
-        return List.of("Utility: sleep at night (places a carried bed); use_block presses buttons, flips levers, opens doors; "
+        return List.of("Utility: sleep at night (places a carried bed); use_block presses buttons, flips levers, opens doors, tunes repeaters; "
                 + "enchant at a table with lapis and levels; brew awkward potions then real ones. You open doors on your way automatically.");
     }
 

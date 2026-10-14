@@ -51,7 +51,8 @@ public final class BuildingModule implements ToolModule {
         return List.of(
                 Tools.fn("build", "Build a structure you design: layers from bottom to top, each a list of rows (row 0 nearest you, columns left to right); "
                         + "legend maps symbols to blocks; '.' must be air, ' ' is left alone. Max 16x16x16. You must carry every block. "
-                        + "Without x/y/z it is built 2 blocks in front of you, centred.", build, "name", "layers", "legend"),
+                        + "Without x/y/z it is built 2 blocks in front of you, centred. "
+                        + "Legend values may give block states, e.g. \"repeater[facing=forward,delay=2]\"; facing forward/back/left/right is relative to the blueprint.", build, "name", "layers", "legend"),
                 Tools.fn("build_template", "Build a ready-made structure from one material: " + describeTemplates()
                         + ". You must carry every block. Without x/y/z it is built 2 blocks in front of you, centred.",
                         template, "template", "material", "name"));
@@ -139,7 +140,8 @@ public final class BuildingModule implements ToolModule {
 
     @Override
     public List<String> guideLines() {
-        return List.of("Build: design with build (layers + legend) or use build_template; finished builds are listed under Structures for everyone.");
+        return List.of("Build: design with build (layers + legend) or use build_template; finished builds are listed under Structures for everyone. "
+                + "Redstone and other facing blocks go in the legend with states, e.g. repeater[facing=forward,delay=2]; you stand and look the way a player would to place them.");
     }
 
     @Override
