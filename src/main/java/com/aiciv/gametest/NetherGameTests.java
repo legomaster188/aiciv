@@ -83,7 +83,7 @@ public final class NetherGameTests {
         bot.player.getInventory().setItem(0, new ItemStack(Items.OBSIDIAN, 14));
         bot.player.getInventory().setItem(1, new ItemStack(Items.FLINT_AND_STEEL));
         BlockPos origin = helper.absolutePos(new BlockPos(4, 1, 8));
-        String structure = BuildPortalAction.structureName(origin);
+        String structure = BuildPortalAction.structureName(Portals.key(helper.getLevel()), origin);
         StructureRegistry.of(helper.getLevel().getServer()).store().remove(structure);
         run(bot, "build_portal", "{\"x\":" + origin.getX() + ",\"y\":" + origin.getY() + ",\"z\":" + origin.getZ() + ",\"facing\":\"S\"}");
         Pos bottomLeft = new Pos(4, 1, 8);

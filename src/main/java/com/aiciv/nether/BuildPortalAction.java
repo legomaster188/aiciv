@@ -6,6 +6,7 @@ import com.aiciv.actions.BotContext;
 import com.aiciv.bot.AiPlayer;
 import com.aiciv.building.BuildAction;
 import com.aiciv.building.Facing;
+import com.aiciv.dimension.Portals;
 import com.aiciv.nav.Pos;
 import com.aiciv.world.InventoryOps;
 import java.util.HashMap;
@@ -64,7 +65,7 @@ public final class BuildPortalAction implements Action {
         } else {
             origin = defaultOrigin(p, facing);
         }
-        child = new BuildAction(structureName(origin), PortalFrame.blueprint(corner), origin, facing, "portal");
+        child = new BuildAction(structureName(Portals.key(p.level()), origin), PortalFrame.blueprint(corner), origin, facing, "portal");
         stage = Stage.BUILD;
         return null;
     }
@@ -101,9 +102,17 @@ public final class BuildPortalAction implements Action {
         return out;
     }
 
-    /** The name the finished frame is listed under: {@code portal_<x>_<z>} of its bottom left corner, minus signs written m. */
-    public static String structureName(BlockPos origin) {
-        return "portal_" + coordinate(origin.getX()) + "_" + coordinate(origin.getZ());
+    /**
+     * The name the finished frame is listed under: {@code portal_<dimension>_<x>_<y>_<z>} of its bottom left corner,
+     * minus signs written m, so frames above each other or at the same spot in another dimension get names of their own.
+     */
+    public static String structureName(String dimension, BlockPos origin) {
+        return "portal_" + place(dimension, origin);
+    }
+
+    /** {@code <dimension>_<x>_<y>_<z>}, e.g. {@code the_nether_m3_70_12}. */
+    static String place(String dimension, BlockPos origin) {
+        return Portals.shortName(dimension) + "_" + coordinate(origin.getX()) + "_" + coordinate(origin.getY()) + "_" + coordinate(origin.getZ());
     }
 
     static String coordinate(int v) {

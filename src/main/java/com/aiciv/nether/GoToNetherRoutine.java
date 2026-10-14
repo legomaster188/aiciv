@@ -32,9 +32,11 @@ public final class GoToNetherRoutine extends Routine {
     protected Action nextStage(BotContext ctx) {
         if (!planned) {
             planned = true;
-            AiPlayer p = ctx.player();
-            if (Portals.key(p.level()).equals("minecraft:the_nether")) return new Refusal("go_to_nether", "you are already in the_nether");
-            plan(ctx, p);
+            String here = ctx.dimension();
+            if (here.equals("minecraft:the_nether")) return new Refusal("go_to_nether", "you are already in the_nether");
+            // A portal frame can be built in the End, but fire does not open it there.
+            if (here.equals("minecraft:the_end")) return new Refusal("go_to_nether", "nether portals can't be lit in the End");
+            plan(ctx, ctx.player());
         }
         return stages.poll();
     }

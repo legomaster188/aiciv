@@ -9,6 +9,7 @@ import com.aiciv.bot.AiPlayer;
 import com.aiciv.building.BuildAction;
 import com.aiciv.building.Facing;
 import com.aiciv.building.StructureRegistry;
+import com.aiciv.dimension.Portals;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.nav.Pos;
@@ -80,6 +81,8 @@ public final class CastPortalAction implements Action {
     private Facing facing;
     private Block wallBlock;
     private String wallName;
+    private BlockPos wallOrigin;
+    private String wallOwner;
     private BuildAction wall;
     private final List<BlockPos> wallCells = new ArrayList<>();
     private final List<BlockPos> cells = new ArrayList<>();
@@ -201,8 +204,9 @@ public final class CastPortalAction implements Action {
             if (sources.isEmpty()) return ActionStatus.failed("needs a lava_bucket or lava within " + SIGHT + " blocks");
             lastLava = sources.get(0);
         }
-        wallName = "portal_wall_" + BuildPortalAction.coordinate(origin.getX()) + "_" + BuildPortalAction.coordinate(origin.getZ());
-        BlockPos wallOrigin = block(new Pos(origin.getX() + facing.forwardX(), origin.getY(), origin.getZ() + facing.forwardZ()));
+        wallName = "portal_wall_" + BuildPortalAction.place(Portals.key(level), origin);
+        wallOrigin = block(new Pos(origin.getX() + facing.forwardX(), origin.getY(), origin.getZ() + facing.forwardZ()));
+        wallOwner = p.getScoreboardName();
         wall = new BuildAction(wallName, PortalFrame.wallBlueprint(block), wallOrigin, facing, "portal_wall");
         phase = Phase.WALL;
         return null;
@@ -471,7 +475,10 @@ public final class CastPortalAction implements Action {
 
     private ActionStatus endWall(ServerLevel level) {
         boolean gone = wallCells.stream().noneMatch(b -> level.getBlockState(b).is(wallBlock));
-        if (gone) StructureRegistry.of(level.getServer()).store().remove(wallName);
+        if (gone) {
+            StructureRegistry.of(level.getServer()).store().removeExact(wallName, wallOwner, Portals.key(level),
+                    new Pos(wallOrigin.getX(), wallOrigin.getY(), wallOrigin.getZ()));
+        }
         AABB box = new AABB(wallCells.get(0)).minmax(new AABB(wallCells.get(wallCells.size() - 1))).inflate(CLIMB_BLOCKS + 3);
         gatherer = new ItemGatherer(c -> c.player().level().getEntitiesOfClass(ItemEntity.class, box, e -> InventoryOps.isThrowaway(e.getItem())));
         gatherTicks = 0;
