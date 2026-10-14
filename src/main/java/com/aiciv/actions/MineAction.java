@@ -1,6 +1,7 @@
 package com.aiciv.actions;
 
 import com.aiciv.bot.AiPlayer;
+import com.aiciv.nav.Goal;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.nav.Pos;
@@ -65,9 +66,10 @@ public final class MineAction implements Action {
     private String lastProblem;
     private BlockPos target;
     private int retries;
-    /** Blocks dug out of the way to the current target, and whether the bot already walked up close to it. */
+    /** Blocks dug out of the way to the current target, and whether the bot already walked up close to it or off it. */
     private int dug;
     private boolean closer;
+    private boolean steppedAside;
     private BlockPos tracked;
     private BlockPos collectCentre;
     private int collectTicks;
@@ -97,9 +99,9 @@ public final class MineAction implements Action {
         ServerLevel level = player.level();
         String toolProblem = null;
         List<BlockPos> candidates = candidates(ctx);
-        // The block under its feet comes last, and only with solid ground under it: digging it drops the bot into the hole.
+        // The block under its feet comes last: digging it drops the bot into the hole (see approach).
         BlockPos below = player.blockPosition().below();
-        if (candidates.remove(below) && solidUnder(level, below)) candidates.add(below);
+        if (candidates.remove(below)) candidates.add(below);
         for (BlockPos pos : candidates) {
             BlockState state = level.getBlockState(pos);
             if (state.getDestroySpeed(level, pos) < 0) {
@@ -119,6 +121,7 @@ public final class MineAction implements Action {
             retries = 0;
             dug = 0;
             closer = false;
+            steppedAside = false;
             ctx.navigator().goTo(new NearGoal(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, STAND_RADIUS));
             phase = Phase.NAVIGATE;
             return ActionStatus.RUNNING;
@@ -193,8 +196,15 @@ public final class MineAction implements Action {
             return ActionStatus.RUNNING;
         }
         if (target.equals(player.blockPosition().below()) && !solidUnder(level, target)) {
-            skip(target, "it is what I stand on");
-            phase = Phase.PICK;
+            // standing on it with nothing solid below: step off and mine it from the side
+            if (steppedAside) {
+                skip(target, "it is what I stand on");
+                phase = Phase.PICK;
+            } else {
+                steppedAside = true;
+                ctx.navigator().goTo(beside(target));
+                phase = Phase.NAVIGATE;
+            }
             return ActionStatus.RUNNING;
         }
         BlockPos blocker = Sight.occluder(player, target);
@@ -253,6 +263,17 @@ public final class MineAction implements Action {
             if (!level.getFluidState(pos.relative(d)).isEmpty()) return true;
         }
         return false;
+    }
+
+    /** Within reach of {@code pos}, but not standing on it. */
+    private static Goal beside(BlockPos pos) {
+        NearGoal near = new NearGoal(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, STAND_RADIUS);
+        Pos on = new Pos(pos.getX(), pos.getY() + 1, pos.getZ());
+        return new Goal() {
+            @Override public boolean reached(Pos feet) { return near.reached(feet) && !feet.equals(on); }
+            @Override public double estimate(Pos feet) { return feet.equals(on) ? 1 : near.estimate(feet); }
+            @Override public String describe() { return "beside " + pos.getX() + " " + pos.getY() + " " + pos.getZ(); }
+        };
     }
 
     /** Solid, dry ground under {@code pos}, so a bot standing on {@code pos} lands on it when {@code pos} is dug out. */
