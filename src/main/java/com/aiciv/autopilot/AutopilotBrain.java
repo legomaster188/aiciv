@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /** One autopilot bot's decision state: spec, personality, engine, chat and memory. Server thread only. */
 public final class AutopilotBrain {
@@ -25,6 +26,12 @@ public final class AutopilotBrain {
     private String lastThought = "nothing yet";
     private Situation lastSituation;
     private long lastTick;
+    /** When the world was last read for a decision, and the re-stamped reading handed out by {@link #reusable}. */
+    private long capturedTick = Long.MIN_VALUE / 2;
+    private Situation reused;
+
+    /** How long a world reading may serve a busy bot's later decisions. */
+    public static final int REUSE_TICKS = 40;
 
     public AutopilotBrain(AutopilotSpec spec, Personality p, AutopilotEngine engine, AutopilotChat chat) {
         this(null, spec, p, engine, chat);
@@ -46,6 +53,8 @@ public final class AutopilotBrain {
     public Decision decide(Situation s, String trigger, long tick, long nowMillis) {
         lastTick = tick;
         lastSituation = s;
+        if (s != reused) capturedTick = tick;
+        reused = null;
         List<String> reached = Milestones.reached(s);
         if (memory.decisions() == 0) {
             memory.bragged().addAll(reached); // what the bot had when it joined is not news
@@ -82,6 +91,23 @@ public final class AutopilotBrain {
         for (ChatCue cue : d.cues()) chat.cue(cue, nowMillis);
         lastThought = d.thought();
         return d;
+    }
+
+    /**
+     * For a busy bot woken by a mention or by damage, the last world reading when it is under {@link #REUSE_TICKS} old,
+     * re-stamped with this tick, health, food and the memory: such a decision usually keeps the running action, and a
+     * full snapshot for it would be wasted. An urgent pulse, an ended action or an idle bot always gets a fresh reading.
+     */
+    public Optional<Situation> reusable(String trigger, boolean busy, String currentAction, int health, int food,
+                                        String pinnedGoal, long tick) {
+        Situation last = lastSituation;
+        if (!busy || last == null || tick - capturedTick >= REUSE_TICKS) return Optional.empty();
+        if (!"MENTIONED".equals(trigger) && !"HURT".equals(trigger)) return Optional.empty();
+        reused = new Situation(last.name(), last.dimension(), last.x(), last.y(), last.z(), health, food, last.night(), tick,
+                last.inventory(), last.worn(), last.holding(), last.freeSlots(), last.blocks(), last.players(), last.mobs(),
+                last.hostiles(), last.remembered(), last.tags(), last.structures(), last.actions(), currentAction, true,
+                Set.copyOf(memory.flags()), new HashMap<>(memory.lastDone()), memory.requests(tick), tuning, pinnedGoal);
+        return Optional.of(reused);
     }
 
     /**

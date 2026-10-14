@@ -122,11 +122,15 @@ final class BrainScheduler {
     private void decideAutopilot(Bot b, AutopilotTurns.Turn t, long now, long tick) {
         boolean busy = b.executor.busy();
         String current = b.executor.currentDescription();
-        SnapshotData data = Perceiver.capture(b.player, current, b.brain.lastDecision(), p -> p instanceof AiPlayer, b.knownBlocks,
-                b.attachments);
-        String snapshot = SnapshotFormatter.format(data, SnapshotFormatter.MAX_CHARS);
-        Situation s = SituationCapture.capture(b.player, data, busy, busy ? current : null, b.autopilot.memory(),
-                b.autopilot.tuning(), pinnedGoal(b.brain.goal()), tick);
+        String pinned = pinnedGoal(b.brain.goal());
+        Situation s = b.autopilot.reusable(t.trigger(), busy, busy ? current : null, Math.round(b.player.getHealth()),
+                b.player.getFoodData().getFoodLevel(), pinned, tick).orElse(null);
+        if (s == null) {
+            SnapshotData data = Perceiver.capture(b.player, current, b.brain.lastDecision(), p -> p instanceof AiPlayer,
+                    b.knownBlocks, b.attachments);
+            s = SituationCapture.capture(b.player, data, busy, busy ? current : null, b.autopilot.memory(),
+                    b.autopilot.tuning(), pinned, tick);
+        }
         b.brain.dispatched(now);
         Decision d = b.autopilot.decide(s, t.trigger(), tick, now);
         if (d.keepCurrent()) {
@@ -137,7 +141,7 @@ final class BrainScheduler {
         log.addProperty("time", Instant.ofEpochMilli(m.clock().millis()).toString());
         log.addProperty("trigger", t.trigger());
         if (t.detail() != null) log.addProperty("urgent", t.detail());
-        log.addProperty("snapshotChars", snapshot.length());
+        log.addProperty("snapshotChars", 0); // an autopilot reads the snapshot's data; nobody formats it as text
         log.addProperty("provider", "autopilot");
         log.addProperty("mode", "autopilot");
         log.addProperty("model", b.brain.modelKey());

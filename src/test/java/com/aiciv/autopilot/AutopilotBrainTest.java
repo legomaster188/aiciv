@@ -61,6 +61,33 @@ class AutopilotBrainTest {
     }
 
     @Test
+    void aKeptDecisionReusesARecentReadingInsteadOfCapturing() {
+        FakeEngine engine = new FakeEngine();
+        AutopilotBrain brain = new AutopilotBrain(SPEC, P, engine, new RecordingChat());
+        engine.next = mine("get_wood_tools", "wooden_pickaxe", 3);
+        brain.decide(new TestSituation().tick(100).build(), "IDLE", 100, 0); // a fresh reading at tick 100
+        brain.memory().flags().add("home_built");
+
+        Situation again = brain.reusable("MENTIONED", true, "mine log x3", 15, 18, null, 120).orElseThrow();
+        assertEquals(120, again.tick());
+        assertEquals(15, again.health());
+        assertEquals(18, again.food());
+        assertTrue(again.busy());
+        assertEquals("mine log x3", again.currentAction());
+        assertTrue(again.flag("home_built"), "the memory part is current");
+        assertTrue(brain.decide(again, "MENTIONED", 120, 1000).keepCurrent());
+
+        // still aged from the capture at 100, not from the reuse at 120
+        assertTrue(brain.reusable("HURT", true, "mine log x3", 14, 18, null, 139).isPresent());
+        assertTrue(brain.reusable("HURT", true, "mine log x3", 14, 18, null, 140).isEmpty());
+        assertTrue(brain.reusable("URGENT", true, "mine log x3", 14, 18, null, 110).isEmpty(), "a pulse needs fresh eyes");
+        assertTrue(brain.reusable("ACTION_ENDED", true, "mine log x3", 14, 18, null, 110).isEmpty());
+        assertTrue(brain.reusable("MENTIONED", false, null, 14, 18, null, 110).isEmpty(), "not busy: nothing to keep");
+        assertTrue(new AutopilotBrain(SPEC, P, engine, new RecordingChat()).reusable("HURT", true, "x", 1, 1, null, 5).isEmpty(),
+                "nothing read yet");
+    }
+
+    @Test
     void milestonesAreBraggedOnlyWhenNewlyReached() {
         FakeEngine engine = new FakeEngine();
         RecordingChat chat = new RecordingChat();
