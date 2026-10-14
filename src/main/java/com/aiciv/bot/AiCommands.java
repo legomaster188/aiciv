@@ -114,7 +114,10 @@ public final class AiCommands {
         try {
             List<String> problems = AiCiv.reload();
             c.getSource().sendSuccess(() -> Component.literal("Reloaded aiciv.json and keys.json"), true);
-            for (String p : problems) c.getSource().sendFailure(Component.literal("aiciv.json: " + p));
+            for (String p : problems) {
+                // personalities.json problems already name their file
+                c.getSource().sendFailure(Component.literal(p.startsWith("personalit") ? p : "aiciv.json: " + p));
+            }
             return 1;
         } catch (IOException | RuntimeException e) {
             c.getSource().sendFailure(Component.literal("Reload failed: " + e.getMessage()));

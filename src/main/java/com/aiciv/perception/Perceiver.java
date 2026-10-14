@@ -19,10 +19,13 @@ import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -80,7 +83,8 @@ public final class Perceiver {
                 currentAction, lastResult, bot.experienceLevel, ToolModules.sections(bot, attachments));
     }
 
-    static String equipment(AiPlayer bot) {
+    /** Worn armor and the offhand item, ", "-separated, or "none". */
+    public static String equipment(AiPlayer bot) {
         List<String> worn = new ArrayList<>();
         for (EquipmentSlot slot : new EquipmentSlot[] {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS,
                 EquipmentSlot.FEET, EquipmentSlot.OFFHAND}) {
@@ -297,6 +301,17 @@ public final class Perceiver {
         agg.forEach((id, a) -> out.add(new Sighting(id, (int) a[0], (int) Math.round(a[1]), Compass.direction(a[2], a[3]))));
         out.sort(Comparator.comparingInt(Sighting::distance));
         return out;
+    }
+
+    /** The distinct mob labels within {@code within} blocks whose entity type is a monster, nearest first. */
+    public static List<String> hostileLabels(List<Sighting> mobs, int within) {
+        List<String> hostile = new ArrayList<>();
+        for (Sighting s : mobs) {
+            if (s.distance() > within || hostile.contains(s.label())) continue;
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.withDefaultNamespace(s.label()));
+            if (type.getCategory() == MobCategory.MONSTER) hostile.add(s.label());
+        }
+        return hostile;
     }
 
     static String itemId(ItemStack s) {

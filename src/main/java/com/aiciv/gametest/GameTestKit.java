@@ -1,8 +1,13 @@
 package com.aiciv.gametest;
 
+import com.aiciv.autopilot.personality.Personalities;
 import com.aiciv.bot.Bot;
 import com.aiciv.bot.BotException;
 import com.aiciv.bot.BotManager;
+import com.aiciv.brain.DecisionLog;
+import com.aiciv.config.AiCivConfig;
+import com.aiciv.llm.ChatBackend;
+import com.aiciv.llm.LlmService;
 import com.aiciv.llm.ScriptedBackend;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -10,15 +15,17 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 
-/** Shared arena and bot helpers for the milestone-3 game tests. */
+/** Shared arena and bot helpers for the milestone-3 and later game tests. */
 public final class GameTestKit {
     private GameTestKit() {}
 
@@ -84,6 +91,56 @@ public final class GameTestKit {
         } catch (Exception e) {
             throw new IllegalStateException("could not spawn " + name, e);
         }
+    }
+
+    public record AutoSpawned(BotManager manager, Bot bot, Path dir, ScriptedBackend backend) {}
+
+    /**
+     * The scripted provider and "scripted" model, any {@code extraModelsJson} entries (e.g. {@code "a": {...}, "b": {...}}),
+     * defaultModel "scripted" and fast autopilot timing.
+     */
+    public static String autopilotConfig(String extraModelsJson) {
+        String extra = extraModelsJson == null || extraModelsJson.isBlank() ? "" : ", " + extraModelsJson;
+        return """
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"scripted": {"provider": "scripted", "model": "script"}%s},
+                 "defaultModel": "scripted", "decisionGapSeconds": 0, "autopilot": {"thinkSeconds": 1, "gapMillis": 0}}"""
+                .formatted(extra);
+    }
+
+    /** An autopilot bot at relative (x, 1, z) on {@code model}, with an empty scripted backend; the manager ticks fully. */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model) {
+        ScriptedBackend backend = new ScriptedBackend(List.of());
+        return spawnAutopilot(helper, name, x, z, model, autopilotConfig(""), Map.of("scripted", backend));
+    }
+
+    /**
+     * As above with an explicit config and LLM backends by provider. {@code backend} in the result is the "scripted"
+     * provider's backend when it is a {@link ScriptedBackend}, else null.
+     */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model,
+                                             String configJson, Map<String, ChatBackend> backends) {
+        try {
+            Path dir = Files.createTempDirectory("aiciv-gametest");
+            AiCivConfig config = AiCivConfig.GSON.fromJson(configJson, AiCivConfig.class);
+            LlmService llm = new LlmService(config, backends, Clock.systemUTC());
+            BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm, dir.resolve("roster.json"),
+                    new DecisionLog(dir.resolve("logs")), Clock.systemUTC(), Personalities.defaults());
+            Bot bot = manager.spawn(name, model, "", helper.getLevel(), helper.absoluteVec(new Vec3(x, 1, z)));
+            helper.onEachTick(() -> {
+                manager.tickStart();
+                manager.tickEnd();
+            });
+            ScriptedBackend backend = backends.get("scripted") instanceof ScriptedBackend s ? s : null;
+            return new AutoSpawned(manager, bot, dir, backend);
+        } catch (Exception e) {
+            throw new IllegalStateException("could not spawn " + name, e);
+        }
+    }
+
+    /** Removes the autopilot bot if it is still online. */
+    public static void remove(AutoSpawned s) {
+        remove(new Spawned(s.manager(), s.bot()));
     }
 
     /** Removes the bot if it is still online. */

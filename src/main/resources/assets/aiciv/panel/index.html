@@ -39,7 +39,7 @@ main { padding: 16px 20px 40px; display: grid; grid-template-columns: repeat(aut
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); flex: none; }
 .paused .dot { background: var(--warn); } .dead .dot { background: var(--bad); }
 .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; padding: 2px 8px; border-radius: 6px; background: var(--panel2); color: var(--dim); }
-.badge.menu { color: var(--purple); } .badge.tools { color: var(--accent); }
+.badge.menu { color: var(--purple); } .badge.tools { color: var(--accent); } .badge.autopilot { color: var(--good); }
 .badge.reflex { color: #07101c; background: var(--warn); } .badge.state { color: #07101c; }
 .badge.state.paused { background: var(--warn); } .badge.state.dead { background: var(--bad); }
 .model { color: var(--dim); font-size: 13px; }
@@ -201,6 +201,7 @@ function makeCard(name) {
   c.hpFill = h("i"); c.hpText = h("span");
   c.foodFill = h("i"); c.foodText = h("span");
   c.pos = h("dd"); c.hold = h("dd"); c.act = h("dd"); c.goal = h("dd");
+  c.persDt = h("dt", {}, "Personality"); c.pers = h("dd"); c.chatDt = h("dt", {}, "Chat"); c.chat = h("dd");
   c.dec = h("div", { class: "decision" });
   c.select = h("select", { title: "Change model", onchange: () => { post("model", { name, model: c.select.value }); }, onclick: e => e.stopPropagation() });
   c.pause = h("button", { onclick: e => { e.stopPropagation(); post(c.paused ? "resume" : "pause", { name }); } });
@@ -209,7 +210,8 @@ function makeCard(name) {
     c.model,
     h("div", { class: "bars" },
       h("div", { class: "bar hp" }, c.hpFill, c.hpText), h("div", { class: "bar food" }, c.foodFill, c.foodText)),
-    h("dl", {}, h("dt", {}, "Position"), c.pos, h("dt", {}, "Holding"), c.hold, h("dt", {}, "Doing"), c.act, h("dt", {}, "Goal"), c.goal),
+    h("dl", {}, h("dt", {}, "Position"), c.pos, h("dt", {}, "Holding"), c.hold, h("dt", {}, "Doing"), c.act, h("dt", {}, "Goal"), c.goal,
+      c.persDt, c.pers, c.chatDt, c.chat),
     c.dec,
     h("div", { class: "actions" }, c.pause,
       h("button", { onclick: e => { e.stopPropagation(); const t = prompt("What should " + name + " say?"); if (t) post("say", { name, text: t }); } }, "Say"),
@@ -259,7 +261,14 @@ function render(s) {
     c.pos.textContent = Math.round(b.x) + " " + Math.round(b.y) + " " + Math.round(b.z) + "  ·  " + b.dimension.replace("minecraft:", "");
     c.hold.textContent = b.holding || "nothing";
     c.act.textContent = b.action;
-    c.goal.textContent = b.goal || "(none)";
+    const ap = b.autopilot;
+    c.goal.textContent = ap ? (ap.goal ? ap.goal + (ap.step ? " · " + ap.step : "") : "(none)") : (b.goal || "(none)");
+    for (const e of [c.persDt, c.pers, c.chatDt, c.chat]) e.style.display = ap ? "" : "none";
+    if (ap) {
+      const traits = Object.entries(ap.traits || {}).map(([k, v]) => k + " " + v).join(" · ");
+      c.pers.textContent = (ap.personalityName || ap.personality) + (traits ? " — " + traits : "");
+      c.chat.textContent = ap.chatModel || "templates";
+    }
     c.pause.textContent = b.paused ? "Resume" : "Pause";
     fillSelect(c.select, b.model);
     const d = b.lastDecision;
