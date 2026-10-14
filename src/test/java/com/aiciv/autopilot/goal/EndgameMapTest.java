@@ -42,11 +42,28 @@ class EndgameMapTest {
         assertTrue(all.containsAll(required), "missing " + required.stream().filter(r -> !all.contains(r)).toList());
     }
 
+    /** The action names Milestone 4 ships (branches aiciv-m4-nether, -end, -dragon and the dimension module). */
+    @Test
+    void milestoneFourActionNamesAreCandidates() {
+        List<String> m4 = List.of("build_portal", "cast_portal", "go_to_nether", "enter_portal", "find_fortress", "get_blaze_rods",
+                "hunt_blazes", "make_eyes", "leave_nether", "locate_stronghold", "go_to_stronghold", "fill_end_portal", "go_to_end",
+                "fight_dragon");
+        Set<String> all = new HashSet<>();
+        for (EndgameMap.Entry e : EndgameMap.load()) for (EndgameMap.Candidate c : e.candidates()) all.add(c.action());
+        assertTrue(all.containsAll(m4), "missing " + m4.stream().filter(n -> !all.contains(n)).toList());
+    }
+
+    @Test
+    void anUnknownConditionIsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> new EndgameMap.Candidate("x", new JsonObject(), "!NOT_A_CONDITION", List.of()));
+    }
+
     @Test
     void coordinatesPlaceholdersBecomeNumbers() {
         Situation s = sit().at(12, 40, -7).build();
         EndgameMap.Entry enterEnd = EndgameMap.load().stream().filter(e -> e.id().equals("enter_end")).findFirst().orElseThrow();
-        JsonObject args = EndgameMap.fill(enterEnd.candidates().get(0).args(), s);
+        EndgameMap.Candidate activate = enterEnd.candidates().stream().filter(c -> c.action().equals("activate_end_portal")).findFirst().orElseThrow();
+        JsonObject args = EndgameMap.fill(activate.args(), s);
         assertEquals(12, args.get("x").getAsInt());
         assertTrue(args.get("x").getAsJsonPrimitive().isNumber());
         assertEquals(40, args.get("y").getAsInt());

@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,7 +22,28 @@ import java.util.Set;
 public final class EndgameMap {
     private EndgameMap() {}
 
-    public record Candidate(String action, JsonObject args) {}
+    /**
+     * One way to do a step: {@code action} with {@code args}, usable when the build knows the action and every one in
+     * {@code requires}, and {@code when} (a condition name, "!" negating it; null for always) holds.
+     */
+    public record Candidate(String action, JsonObject args, String when, List<String> requires) {
+        public Candidate(String action, JsonObject args) {
+            this(action, args, null, List.of());
+        }
+
+        public Candidate {
+            requires = requires == null ? List.of() : List.copyOf(requires);
+            if (when != null) EndgameCondition.valueOf(when.startsWith("!") ? when.substring(1) : when); // fails on a typo
+        }
+
+        boolean usable(Situation s) {
+            if (!s.hasAction(action)) return false;
+            for (String r : requires) if (!s.hasAction(r)) return false;
+            if (when == null) return true;
+            boolean negated = when.startsWith("!");
+            return EndgameCondition.valueOf(negated ? when.substring(1) : when).test(s) != negated;
+        }
+    }
 
     public record Entry(String id, EndgameCondition doneWhen, String flag, List<Candidate> candidates) {}
 
@@ -44,7 +66,10 @@ public final class EndgameMap {
                 List<Candidate> candidates = new ArrayList<>();
                 for (JsonElement c : o.getAsJsonArray("candidates")) {
                     JsonObject co = c.getAsJsonObject();
-                    candidates.add(new Candidate(co.get("action").getAsString(), co.getAsJsonObject("args")));
+                    List<String> requires = new ArrayList<>();
+                    if (co.has("requires")) for (JsonElement r : co.getAsJsonArray("requires")) requires.add(r.getAsString());
+                    candidates.add(new Candidate(co.get("action").getAsString(), co.getAsJsonObject("args"),
+                            co.has("when") ? co.get("when").getAsString() : null, requires));
                 }
                 out.add(new Entry(o.get("id").getAsString(), EndgameCondition.valueOf(o.get("doneWhen").getAsString()),
                         o.has("flag") ? o.get("flag").getAsString() : null, List.copyOf(candidates)));
@@ -64,10 +89,15 @@ public final class EndgameMap {
 
             @Override public Move next(Situation s) {
                 for (Candidate c : e.candidates()) {
-                    if (s.hasAction(c.action())) return Move.act(e.id() + " with " + c.action(), ToolCall.of(c.action(), fill(c.args(), s)));
+                    if (c.usable(s)) return Move.act(e.id() + " with " + c.action(), ToolCall.of(c.action(), fill(c.args(), s)));
                 }
-                List<String> names = e.candidates().stream().map(Candidate::action).toList();
-                return Move.blocked("needs one of " + String.join(", ", names) + " (not available yet)");
+                Set<String> missing = new LinkedHashSet<>();
+                for (Candidate c : e.candidates()) {
+                    if (!s.hasAction(c.action())) missing.add(c.action());
+                    for (String r : c.requires()) if (!s.hasAction(r)) missing.add(r);
+                }
+                if (missing.isEmpty()) return Move.blocked("no way to do " + e.id() + " from here");
+                return Move.blocked("needs one of " + String.join(", ", missing) + " (not available yet)");
             }
         };
     }
