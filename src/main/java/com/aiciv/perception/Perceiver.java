@@ -46,6 +46,11 @@ public final class Perceiver {
     private static final int REMEMBERED_MAX = 8;
     /** Line-of-sight rays one scan may cast; candidates beyond that stay unseen. */
     private static final int MAX_RAYS = 400;
+    /**
+     * The snapshot casts rays at no more than this many of the nearest blocks of each kind, so a fortress wall or a field
+     * of logs cannot use up the ray budget before the lava, the portal or the ore a little farther away is looked at.
+     */
+    static final int RAYS_PER_LABEL = 24;
     private static final Set<String> UTILITY = Set.of(
             "crafting_table", "furnace", "blast_furnace", "smoker", "chest", "trapped_chest", "barrel",
             "anvil", "enchanting_table", "brewing_stand",
@@ -132,14 +137,14 @@ public final class Perceiver {
         scan(level, origin, eye, radius, s -> {
             String id = BuiltInRegistries.BLOCK.getKey(s.getBlock()).getPath();
             return label.test(id) ? id : null;
-        }, (id, p, d2, dx, dy, dz) -> out.add(Map.entry(new Pos(p.getX(), p.getY(), p.getZ()), id)));
+        }, Integer.MAX_VALUE, (id, p, d2, dx, dy, dz) -> out.add(Map.entry(new Pos(p.getX(), p.getY(), p.getZ()), id)));
         return out; // the scan reports nearest first
     }
 
     /** Every block state within {@code radius} that passes {@code match} and that a ray from {@code eye} reaches, nearest first. */
     public static List<BlockPos> exposedStates(ServerLevel level, BlockPos origin, Vec3 eye, int radius, Predicate<BlockState> match) {
         List<BlockPos> out = new ArrayList<>();
-        scan(level, origin, eye, radius, s -> match.test(s) ? "" : null, (label, p, d2, dx, dy, dz) -> out.add(p));
+        scan(level, origin, eye, radius, s -> match.test(s) ? "" : null, Integer.MAX_VALUE, (label, p, d2, dx, dy, dz) -> out.add(p));
         return out;
     }
 
@@ -157,10 +162,11 @@ public final class Perceiver {
 
     /**
      * Visits, nearest first, blocks in a sphere that the labeller names, that touch air (or water), and that a ray from
-     * {@code eye} actually reaches. Shared by the snapshot and by lookups, so a bot never knows about hidden blocks.
+     * {@code eye} actually reaches. Shared by the snapshot and by lookups, so a bot never knows about hidden blocks. Only
+     * the {@code perLabel} nearest candidates of each label are looked at.
      */
     private static void scan(ServerLevel level, BlockPos origin, Vec3 eye, int r, Function<BlockState, String> labeller,
-                             Visitor visitor) {
+                             int perLabel, Visitor visitor) {
         List<Candidate> candidates = new ArrayList<>();
         BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
         int r2 = r * r;
@@ -185,8 +191,10 @@ public final class Perceiver {
         }
         candidates.sort(Comparator.comparingInt(Candidate::d2));
         int[] rays = {0};
+        Map<String, Integer> perKind = new HashMap<>();
         for (Candidate c : candidates) {
             if (rays[0] >= MAX_RAYS) break;
+            if (perKind.merge(c.label(), 1, Integer::sum) > perLabel) continue;
             if (visible(level, eye, c, rays)) visitor.visit(c.label(), c.pos(), c.d2(), c.dx(), c.dy(), c.dz());
         }
     }
@@ -217,7 +225,7 @@ public final class Perceiver {
         // label -> {count, nearest distance squared, dx, dz}
         Map<String, int[]> seen = new HashMap<>();
         long tick = level.getGameTime();
-        scan(level, origin, eye, BLOCK_RADIUS, Perceiver::label, (label, p, d2, dx, dy, dz) -> {
+        scan(level, origin, eye, BLOCK_RADIUS, Perceiver::label, RAYS_PER_LABEL, (label, p, d2, dx, dy, dz) -> {
             int[] agg = seen.computeIfAbsent(label, k -> new int[] {0, Integer.MAX_VALUE, 0, 0});
             agg[0]++;
             if (d2 < agg[1]) {

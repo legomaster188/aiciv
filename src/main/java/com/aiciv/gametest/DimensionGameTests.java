@@ -10,6 +10,8 @@ import com.aiciv.dimension.Waypoints;
 import com.aiciv.modules.ToolModules;
 import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.Pos;
+import com.aiciv.perception.Perceiver;
+import com.aiciv.perception.SnapshotData;
 import com.aiciv.world.Ballistics;
 import com.aiciv.world.BlockPlacer;
 import com.aiciv.world.BlockUse;
@@ -320,6 +322,39 @@ public final class DimensionGameTests {
             helper.assertTrue(poured == BlockUse.Result.USED, "pour: " + poured);
             helper.assertTrue(helper.getLevel().getFluidState(cell).isSourceOfType(Fluids.WATER), "no water source poured");
             helper.assertTrue(InventoryOps.has(p, Items.BUCKET, 1) && !InventoryOps.has(p, Items.WATER_BUCKET, 1), "the bucket was not emptied");
+            GameTestKit.remove(s);
+            helper.succeed();
+        });
+    }
+
+    /**
+     * A room floored and roofed with nether bricks puts hundreds of bricks nearer than a portal 10 blocks away; the bricks
+     * may not use up the snapshot's sight rays before the portal is looked at.
+     */
+    @GameTest(maxTicks = 100, padding = 24)
+    public void portalSeenPastAFieldOfBricks(GameTestHelper helper) {
+        GameTestKit.clearBarriers(helper, 8);
+        for (int x = 0; x <= 22; x++) {
+            for (int z = 0; z <= 21; z++) {
+                helper.setBlock(x, 0, z, Blocks.NETHER_BRICKS);
+                helper.setBlock(x, 6, z, Blocks.NETHER_BRICKS);
+            }
+        }
+        for (int y = 1; y <= 5; y++) {
+            helper.setBlock(16, y, 9, Blocks.OBSIDIAN);
+            helper.setBlock(16, y, 12, Blocks.OBSIDIAN);
+        }
+        for (int z = 10; z <= 11; z++) {
+            helper.setBlock(16, 1, z, Blocks.OBSIDIAN);
+            helper.setBlock(16, 5, z, Blocks.OBSIDIAN);
+        }
+        for (int y = 2; y <= 4; y++) for (int z = 10; z <= 11; z++) helper.setBlock(16, y, z, portal(Direction.Axis.Z));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestDimRays", 6.5, 10.5);
+        helper.runAfterDelay(2, () -> {
+            helper.assertTrue(helper.getBlockState(new BlockPos(16, 3, 10)).is(Blocks.NETHER_PORTAL), "the portal did not stay");
+            SnapshotData data = Perceiver.capture(s.bot().player, "none", "none", x -> true);
+            helper.assertTrue(data.blocks().stream().anyMatch(b -> b.label().equals("nether_portal")), "no portal in " + data.blocks());
+            helper.assertTrue(data.blocks().stream().anyMatch(b -> b.label().equals("nether_bricks")), "no bricks in " + data.blocks());
             GameTestKit.remove(s);
             helper.succeed();
         });
