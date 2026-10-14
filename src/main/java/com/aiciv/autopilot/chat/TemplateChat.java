@@ -132,7 +132,19 @@ public final class TemplateChat implements AutopilotChat {
         if (!policy.categoryAllowed(category)) return;
         if (kind == ChatPolicy.Kind.OPTIONAL && !policy.optionalSpeaks(rng)) return;
         pending.add(new Pending(category, Map.copyOf(withoutNulls(vars)), kind, now, pair, requestText));
-        while (pending.size() > MAX_PENDING) pending.remove(0);
+        while (pending.size() > MAX_PENDING) evictOne();
+    }
+
+    /** Drops the oldest cue of the least important kind, so a flood of optional chatter never pushes out a reply. */
+    private void evictOne() {
+        for (ChatPolicy.Kind kind : new ChatPolicy.Kind[] {ChatPolicy.Kind.OPTIONAL, ChatPolicy.Kind.REPLY, ChatPolicy.Kind.PRIORITY}) {
+            for (int i = 0; i < pending.size(); i++) {
+                if (pending.get(i).kind() == kind) {
+                    pending.remove(i);
+                    return;
+                }
+            }
+        }
     }
 
     @Override

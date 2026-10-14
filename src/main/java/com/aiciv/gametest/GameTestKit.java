@@ -120,12 +120,21 @@ public final class GameTestKit {
      */
     public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model,
                                              String configJson, Map<String, ChatBackend> backends) {
+        return spawnAutopilot(helper, name, x, z, model, configJson, backends, Clock.systemUTC());
+    }
+
+    /**
+     * As above on {@code clock}. Autopilot timing (think gaps, chat gaps) is in milliseconds, but game tests run far
+     * faster than 20 ticks per second; a long run needs {@link #tickClock} to see the time it would take in a real game.
+     */
+    public static AutoSpawned spawnAutopilot(GameTestHelper helper, String name, double x, double z, String model,
+                                             String configJson, Map<String, ChatBackend> backends, Clock clock) {
         try {
             Path dir = Files.createTempDirectory("aiciv-gametest");
             AiCivConfig config = AiCivConfig.GSON.fromJson(configJson, AiCivConfig.class);
-            LlmService llm = new LlmService(config, backends, Clock.systemUTC());
+            LlmService llm = new LlmService(config, backends, clock);
             BotManager manager = new BotManager(helper.getLevel().getServer(), config, llm, dir.resolve("roster.json"),
-                    new DecisionLog(dir.resolve("logs")), Clock.systemUTC(), Personalities.defaults());
+                    new DecisionLog(dir.resolve("logs")), clock, Personalities.defaults());
             Bot bot = manager.spawn(name, model, "", helper.getLevel(), helper.absoluteVec(new Vec3(x, 1, z)));
             helper.onEachTick(() -> {
                 manager.tickStart();
@@ -136,6 +145,23 @@ public final class GameTestKit {
         } catch (Exception e) {
             throw new IllegalStateException("could not spawn " + name, e);
         }
+    }
+
+    /** A clock that runs 50 ms per server tick, as it would in a real game. */
+    public static Clock tickClock(net.minecraft.server.MinecraftServer server) {
+        long base = System.currentTimeMillis();
+        return new Clock() {
+            @Override public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            @Override public Clock withZone(java.time.ZoneId zone) { return this; }
+            @Override public java.time.Instant instant() { return java.time.Instant.ofEpochMilli(base + server.getTickCount() * 50L); }
+        };
+    }
+
+    /** As the five-argument spawn on {@link #tickClock}. */
+    public static AutoSpawned spawnAutopilotInGameTime(GameTestHelper helper, String name, double x, double z, String model) {
+        ScriptedBackend backend = new ScriptedBackend(List.of());
+        return spawnAutopilot(helper, name, x, z, model, autopilotConfig(""), Map.of("scripted", backend),
+                tickClock(helper.getLevel().getServer()));
     }
 
     /** Removes the autopilot bot if it is still online. */

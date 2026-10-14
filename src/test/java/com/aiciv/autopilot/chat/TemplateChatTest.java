@@ -330,12 +330,37 @@ class TemplateChatTest {
 
     @Test
     void mentionThatIsARequestIsLeftToThePlanner() {
-        // Requests.parse is Task 5's; with its stub nothing parses, so the mention is answered
+        FakeChatPort port = new FakeChatPort();
+        TemplateChat c = chat(1, null);
+        c.observe(new AutopilotEvent.Heard("Bob", "Ada give me 3 bread", true, false), T0);
+        c.tick(port, T0);
+        assertEquals(0, port.said.size(), "the planner answers it with give / refuse / coming");
+    }
+
+    @Test
+    void mentionThatIsNotARequestIsAnswered() {
         FakeChatPort port = new FakeChatPort();
         TemplateChat c = chat(1, null);
         c.observe(new AutopilotEvent.Heard("Bob", "Ada hello", true, false), T0);
         c.tick(port, T0);
         assertEquals(1, port.said.size());
+        assertEquals("mention", port.logField(0, "event"));
+    }
+
+    @Test
+    void aFloodOfOptionalCuesNeverEvictsAWaitingMention() {
+        FakeChatPort port = new FakeChatPort();
+        TemplateChat c = chat(1, null);
+        c.observe(new AutopilotEvent.Spawned(), T0);
+        c.tick(port, T0); // the greeting starts the global gap, so everything below waits
+        c.observe(mention("Bob"), T0 + 100);
+        for (int i = 0; i < 30; i++) {
+            c.cue(new ChatCue("goal", Map.of("goal", "explore" + i), false), T0 + 100 + i);
+            c.cue(new ChatCue("night", Map.of(), false), T0 + 100 + i);
+        }
+        c.tick(port, T0 + 6000);
+        assertEquals(2, port.said.size(), port.said.toString());
+        assertEquals("mention", port.logField(1, "event"));
     }
 
     @Test

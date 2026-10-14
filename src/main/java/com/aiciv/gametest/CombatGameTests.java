@@ -33,14 +33,14 @@ public final class CombatGameTests {
     private static Difficulty difficultyBefore;
 
     /** Hostile mobs vanish in peaceful, so tests that need them switch to easy and put the setting back after. */
-    private static void easy(MinecraftServer server) {
+    static void easy(MinecraftServer server) {
         if (easyUsers++ == 0) {
             difficultyBefore = server.overworld().getDifficulty();
             server.setDifficulty(Difficulty.EASY, true);
         }
     }
 
-    private static void restoreDifficulty(MinecraftServer server) {
+    static void restoreDifficulty(MinecraftServer server) {
         if (--easyUsers == 0) server.setDifficulty(difficultyBefore, true);
     }
 

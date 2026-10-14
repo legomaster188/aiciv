@@ -2,8 +2,8 @@
 
 AI players for Minecraft 26.3, each driven by a language model (Gemini, Groq, OpenRouter,
 GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model). They join as normal
-players, chat, and walk around. Milestones 1 to 3 (chat, survival, building and society) of the design in
-`docs/superpowers/specs/2026-10-11-aiciv-design.md`.
+players, chat, and walk around. Milestones 1 to 3 (chat, survival, building and society) and 5 (autopilot
+bots that need no model) of the design in `docs/superpowers/specs/2026-10-11-aiciv-design.md`.
 
 Server-side only: viewers join with an unmodded 26.3 client. Works in singleplayer too.
 
@@ -74,6 +74,90 @@ probabilities and always use menu mode. The decision log gains `mode`, `option`,
 ```
 
 On OpenRouter use `typesafe/jev-1.13`; `typesafe/jev-router` is a chat router to other models, not Jev.
+
+## Autopilot bots (no LLM needed)
+
+An autopilot plays survival with a built-in planner instead of a language model. It is an ordinary fake
+player: same reflexes, same snapshot, same actions and the same fairness rules as an LLM bot. Each one has a
+personality that sets what it works on, how it talks and how it treats other players. Autopilots cost no
+requests, so any number can run next to the LLM bots.
+
+Spawn one with the model key `autopilot-<personality>`, for example `/ai spawn Rex autopilot-speedrunner`
+(`autopilot:<personality>` also works in `aiciv.json` and the panel; commands cannot contain `:`). Every
+personality has an implicit key, so no config is needed. To pick a chat model or a different thinking
+interval, add a model of `"type": "autopilot"` to `aiciv.json`:
+
+```json
+"models": {
+  "rex": { "type": "autopilot", "personality": "speedrunner" },
+  "fen": { "type": "autopilot", "personality": "farmer", "chatModel": "gemma-menu-free", "thinkSeconds": 8 }
+},
+"autopilot": { "thinkSeconds": 5, "gapMillis": 500, "checkTicks": 20, "maxDecisionsPerTick": 4,
+               "chatCooldownSeconds": 30, "chatLlmCooldownSeconds": 60, "globalChatGapMillis": 2000, "chatLlmMaxAgeSeconds": 20 }
+```
+
+`chatModel` names any LLM model in the file (a cheap one is plenty). It only rewrites the bot's chat lines in
+its own words, at most once per `chatLlmCooldownSeconds`; the planner still decides every action. If that
+model is unavailable, rate limited or slow (a reply older than `chatLlmMaxAgeSeconds` is dropped), the bot says
+the template line or nothing. Without `chatModel` an autopilot only uses its templates. The `autopilot` block
+is optional; the values above are the defaults.
+
+Personalities (`/ai personalities` lists them). Traits run from -1 to 1:
+
+| Id | Brave | Greedy | Social | Tidy | Patient | Likes |
+|----|------:|-------:|-------:|-----:|--------:|-------|
+| `default` | 0 | 0 | 0 | 0 | 0 | an ordinary survivor |
+| `miner` | 0.4 | 0.5 | -0.3 | 0.2 | 0.6 | iron, diamonds |
+| `builder` | -0.2 | -0.2 | 0.3 | 0.9 | 0.8 | a stocked home |
+| `farmer` | -0.5 | -0.4 | 0.4 | 0.6 | 0.9 | crops, bread, selling the surplus |
+| `trader` | -0.3 | 0.8 | 0.9 | 0.3 | 0.4 | emeralds, villagers |
+| `guard` | 1.0 | -0.5 | 0.5 | 0 | 0.3 | armor and fighting |
+| `explorer` | 0.6 | 0 | 0.2 | -0.6 | -0.4 | wandering |
+| `speedrunner` | 0.7 | 0.6 | -0.5 | -0.8 | -0.9 | iron, then the end of the game |
+| `hermit` | -0.6 | 0.3 | -1.0 | 0.7 | 0.7 | a quiet home, no company |
+| `chatty` | -0.2 | -0.8 | 1.0 | 0 | 0 | talking and giving things away |
+
+Brave sets when the bot retreats and how far it fights; greedy how much it keeps before giving things away
+(generous bots give everything); social how often it talks (a loner only answers when spoken to); tidy when it
+stores its things and builds a home; patient how long it sticks to a goal and how often it retries a step.
+
+Goals, in the order the planner knows them: `get_wood_tools`, `get_stone_tools`, `get_iron_tools`,
+`get_iron_armor`, `get_food`, `defend`, `social`, `build_base`, `store_items`, `farm`, `trade_emeralds`,
+`mine_diamonds`, `explore`, `beat_game`. Each personality weights them differently, and the bot works on the
+one with the best weight times need. **Pin a goal** with `/ai goal <name> <goal id>` (for example
+`/ai goal Rex get_iron_armor`); any other text is just remembered as a note. `social` answers chat such as
+"Rex give me 3 bread", "Rex come here" or "Rex follow me", and anyone's "anyone got bread". `beat_game` runs
+the iron chain and then the endgame steps listed in `assets/aiciv/autopilot/endgame.json`, as far as the
+actions that exist go; when a step needs an action that is not available it stops there and says why.
+
+**Your own personalities.** Put a `personalities.json` in `config/aiciv/`. It is merged over the shipped file
+field by field, so you can change one trait of `miner` or add a new id (`[a-z0-9_]{1,24}`, then use
+`autopilot-<id>`):
+
+```json
+{
+  "personalities": {
+    "scout": {
+      "name": "Scout", "description": "Runs ahead and reports back.",
+      "traits": { "brave": 0.3, "social": 0.6, "patient": -0.5 },
+      "goals": { "explore": 1.0, "get_food": 0.6 },
+      "phrases": { "greet": ["Scout {me} reporting in, {other}!"], "brag": ["Found a {item}!"] }
+    }
+  }
+}
+```
+
+Traits and goal weights are clamped to -1..1, and a bad entry (unknown trait or goal id, a non-number, broken JSON)
+is reported, never fatal: `/ai reload` and the server log list every problem, and the shipped personalities keep
+working. A chat line whose `{placeholder}` cannot be filled is never said. The chat templates ship in the mod
+as `assets/aiciv/autopilot/phrases.json` (a `base` set plus lines per personality, with `{me}`, `{speaker}`,
+`{other}`, `{item}` and similar placeholders); the `phrases` key of a personality in `personalities.json`
+replaces a category for that personality. An autopilot whose personality disappears on reload switches to
+`defaultModel`, like any bot whose model disappeared.
+
+Autopilot decisions are in `logs/aiciv/<name>.jsonl` with `mode: autopilot`, the personality, the goal, the
+step and the planner's reasoning in `thought`. Chat lines are logged with `mode: autopilot-chat` and their
+source (`template` or `llm`). The panel and `/ai status` show the personality, traits, goal, step and thought.
 
 ## Actions
 
@@ -150,7 +234,8 @@ In singleplayer, `/ai` needs cheats enabled for the world.
 | `/ai spawn <name> [model] [persona...]` | Adds an AI player at your position |
 | `/ai remove <name>` | Removes it from the world and the roster |
 | `/ai list` | Every AI player and what it is doing |
-| `/ai goal <name> <text>` | Sets its long-term goal |
+| `/ai goal <name> <text>` | Sets its long-term goal (an autopilot treats an exact goal id as a pinned goal) |
+| `/ai personalities` | Lists the autopilot personalities |
 | `/ai pause [name\|all]`, `/ai resume [name\|all]` | Stops or restarts thinking and acting |
 | `/ai status <name>` | Details for one AI player |
 | `/ai budget` | Requests used and left per provider, and provider health |
