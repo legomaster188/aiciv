@@ -82,7 +82,7 @@ class AutopilotBrainTest {
         brain.decide(new TestSituation().build(), "IDLE", 0, 0);
         brain.decide(new TestSituation().build(), "ACTION_ENDED", 100, 0);
         List<AutopilotEvent> changes = chat.events.stream().filter(e -> e instanceof AutopilotEvent.GoalChanged).toList();
-        assertEquals(List.of(new AutopilotEvent.GoalChanged("get_wood_tools", "get_wood_tools")), changes);
+        assertEquals(List.of(new AutopilotEvent.GoalChanged("get_wood_tools", "get wood tools")), changes);
         assertEquals("get_wood_tools", brain.view().goal());
         assertEquals("wooden_pickaxe", brain.view().step());
         assertEquals("mine some logs", brain.view().thought());

@@ -30,6 +30,8 @@ public final class AutopilotMemory {
     private final Map<String, Integer> failures = new HashMap<>();
     private final Map<String, Long> retryAt = new HashMap<>();
     private final Map<String, Integer> finishes = new HashMap<>();
+    /** Times a step finished three times without becoming done; unlike failures, a finish does not clear them. */
+    private final Map<String, Integer> stalls = new HashMap<>();
     private final Map<String, Long> blockedUntil = new HashMap<>();
     private final Set<String> flags = new HashSet<>();
     private final Map<String, Long> lastDone = new HashMap<>();
@@ -57,7 +59,10 @@ public final class AutopilotMemory {
     /** A different step resets the old step's finish count. */
     public void stepStarted(String goal, String step, String flag, long tick) {
         String k = key(goal, step);
-        if (lastStarted != null && !lastStarted.equals(k)) finishes.remove(lastStarted);
+        if (lastStarted != null && !lastStarted.equals(k)) {
+            finishes.remove(lastStarted);
+            stalls.remove(lastStarted);
+        }
         lastStarted = k;
         current(goal, step);
         inFlight = new InFlight(goal, step, flag, tick);
@@ -91,6 +96,17 @@ public final class AutopilotMemory {
     public void fail(String goal, String step, long tick, int maxRetries) {
         String k = key(goal, step);
         int count = failures.merge(k, 1, Integer::sum);
+        if (count >= maxRetries) retryAt.put(k, tick + backoffTicks(count - maxRetries + 1));
+    }
+
+    /**
+     * A step finished again and again without becoming done: counts one failure that finishing cannot clear, and cools the
+     * step down like {@link #fail} once there have been {@code maxRetries} of them.
+     */
+    public void stall(String goal, String step, long tick, int maxRetries) {
+        String k = key(goal, step);
+        int count = stalls.merge(k, 1, Integer::sum);
+        failures.put(k, Math.max(failures.getOrDefault(k, 0) + 1, count));
         if (count >= maxRetries) retryAt.put(k, tick + backoffTicks(count - maxRetries + 1));
     }
 
