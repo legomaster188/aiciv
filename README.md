@@ -125,8 +125,10 @@ Goals, in the order the planner knows them: `get_wood_tools`, `get_stone_tools`,
 `get_iron_armor`, `get_food`, `defend`, `social`, `build_base`, `store_items`, `farm`, `trade_emeralds`,
 `mine_diamonds`, `explore`, `beat_game`. Each personality weights them differently, and the bot works on the
 one with the best weight times need. **Pin a goal** with `/ai goal <name> <goal id>` (for example
-`/ai goal Rex get_iron_armor`); any other text is just remembered as a note. `social` answers chat such as
-"Rex give me 3 bread", "Rex come here" or "Rex follow me", and anyone's "anyone got bread". `beat_game` runs
+`/ai goal Rex get_iron_armor`, `/ai goal Rex none` to unpin); other text is refused with the list of ids.
+`social` answers chat such as "Rex give me 3 bread", "Rex come here" or "Rex follow me", and anyone's
+"anyone got bread" (but not another autopilot's). A person's request comes before any goal except staying
+alive; a bot that cannot answer at once says it is busy, and a hermit says no. `beat_game` runs
 the iron chain and then the endgame steps listed in `assets/aiciv/autopilot/endgame.json`, as far as the
 actions that exist go; when a step needs an action that is not available it stops there and says why.
 
@@ -234,7 +236,7 @@ In singleplayer, `/ai` needs cheats enabled for the world.
 | `/ai spawn <name> [model] [persona...]` | Adds an AI player at your position |
 | `/ai remove <name>` | Removes it from the world and the roster |
 | `/ai list` | Every AI player and what it is doing |
-| `/ai goal <name> <text>` | Sets its long-term goal (an autopilot treats an exact goal id as a pinned goal) |
+| `/ai goal <name> <text>` | Sets its long-term goal (an autopilot takes only a goal id, which it pins, or `none`) |
 | `/ai personalities` | Lists the autopilot personalities |
 | `/ai pause [name\|all]`, `/ai resume [name\|all]` | Stops or restarts thinking and acting |
 | `/ai status <name>` | Details for one AI player |

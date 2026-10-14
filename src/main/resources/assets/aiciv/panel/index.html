@@ -262,7 +262,8 @@ function render(s) {
     c.hold.textContent = b.holding || "nothing";
     c.act.textContent = b.action;
     const ap = b.autopilot;
-    c.goal.textContent = ap ? (ap.goal ? ap.goal + (ap.step ? " · " + ap.step : "") : "(none)") : (b.goal || "(none)");
+    c.goal.textContent = ap ? (ap.goal ? ap.goal + (ap.step ? " · " + ap.step : "") : "(none)") + (b.goal ? " (pinned: " + b.goal + ")" : "")
+      : (b.goal || "(none)");
     for (const e of [c.persDt, c.pers, c.chatDt, c.chat]) e.style.display = ap ? "" : "none";
     if (ap) {
       const traits = Object.entries(ap.traits || {}).map(([k, v]) => k + " " + v).join(" · ");

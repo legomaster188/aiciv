@@ -93,6 +93,40 @@ public final class AutopilotGameTests {
         });
     }
 
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    @GameTest(maxTicks = 100)
+    public void autopilotGoalTakesOnlyGoalIds(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        GameTestKit.AutoSpawned s = GameTestKit.spawnAutopilot(helper, "TestApGoal", 3.5, 3.5, "autopilot-default");
+        helper.runAfterDelay(2, () -> {
+            try {
+                String refused = null;
+                try {
+                    s.manager().setGoal("TestApGoal", "build me a castle");
+                } catch (BotException e) {
+                    refused = e.getMessage();
+                }
+                helper.assertTrue(refused != null && refused.startsWith("autopilots take goal ids: get_wood_tools"), "refusal: " + refused);
+                helper.assertTrue(blank(s.bot().brain.goal()), "free text was stored: " + s.bot().brain.goal());
+                s.manager().setGoal("TestApGoal", " Farm ");
+                helper.assertTrue("farm".equals(s.bot().brain.goal()), "goal " + s.bot().brain.goal());
+                PanelSnapshot snap = PanelSnapshot.capture(s.manager());
+                helper.assertTrue(snap.bots().stream().anyMatch(b -> b.name().equals("TestApGoal") && "farm".equals(b.goal())),
+                        "the panel does not carry the pinned goal: " + snap.bots());
+                s.manager().setGoal("TestApGoal", "none");
+                helper.assertTrue(blank(s.bot().brain.goal()), "none did not unpin: " + s.bot().brain.goal());
+            } catch (BotException e) {
+                throw new IllegalStateException(e);
+            } finally {
+                GameTestKit.remove(s);
+            }
+            helper.succeed();
+        });
+    }
+
     // ---- Task 6: acceptance -------------------------------------------------------------------------------------
 
     private static String str(JsonObject o, String field) {

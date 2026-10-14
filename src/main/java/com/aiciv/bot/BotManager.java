@@ -11,6 +11,7 @@ import com.aiciv.autopilot.AutopilotSpec;
 import com.aiciv.autopilot.AutopilotView;
 import com.aiciv.autopilot.ChatDirectors;
 import com.aiciv.autopilot.Engines;
+import com.aiciv.autopilot.GoalIds;
 import com.aiciv.autopilot.personality.Personalities;
 import com.aiciv.autopilot.personality.Personality;
 import com.aiciv.brain.BotBrain;
@@ -237,8 +238,20 @@ public final class BotManager {
         saveRoster();
     }
 
+    /**
+     * An autopilot's goal pins one of its goal ids ("none" unpins it); free text means nothing to it, so it is refused
+     * with the list of ids instead of being stored as if it had been understood.
+     */
     public void setGoal(String name, String goal) throws BotException {
         Roster.Entry e = roster.get(name).orElseThrow(() -> new BotException("No AI player named " + name));
+        if (AutopilotModels.resolve(e.model, config, personalities.ids()).isPresent()) {
+            String id = goal == null ? "" : goal.trim().toLowerCase(Locale.ROOT);
+            if (id.equals("none")) id = "";
+            if (!id.isEmpty() && !GoalIds.ALL.contains(id)) {
+                throw new BotException("autopilots take goal ids: " + String.join(", ", GoalIds.ALL) + " (or none)");
+            }
+            goal = id;
+        }
         e.goal = goal;
         Bot b = bots.get(key(name));
         if (b != null) b.brain.setGoal(goal);
