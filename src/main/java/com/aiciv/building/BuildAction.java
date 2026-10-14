@@ -282,6 +282,8 @@ public final class BuildAction implements Action {
         breaking = false;
         views = 0;
         tried.clear();
+        // The gatherer's walk to a drop may still be running (and pillaring); a job's own approach and break need the navigator and the bot still.
+        gatherer.stop(ctx);
         if (next == Job.PLACE) {
             // A block is placed from wherever the bot can already see and reach a face to lean on; it only walks when it cannot.
             mode = Mode.WORK;
