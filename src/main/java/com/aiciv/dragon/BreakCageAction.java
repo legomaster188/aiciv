@@ -9,11 +9,15 @@ import com.aiciv.nav.NavStatus;
 import com.aiciv.nav.NearGoal;
 import com.aiciv.world.BlockBreaker;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
@@ -27,8 +31,8 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Destroys a caged end crystal: climbs beside its tower to the crystal's height, breaks the iron bars on the line to
- * it, bridges 9 blocks away from the cage (the explosion is close otherwise), shoots through the gap and climbs
- * down again by breaking its own blocks from the top.
+ * it, bridges 9 blocks away from the cage (the explosion is close otherwise), shoots through the gap, takes its bridge
+ * up behind it on the way back and climbs down again by breaking its own blocks from the top.
  */
 public final class BreakCageAction implements Action {
     static final int MIN_THROWAWAYS = 24;
@@ -56,6 +60,10 @@ public final class BreakCageAction implements Action {
     private BowShot shot;
     private int shots;
     private int waitTicks;
+    private long startTick;
+    /** The own block being broken on the way back, and own blocks that could not be broken (left standing). */
+    private BlockPos clearing;
+    private final Set<BlockPos> leftStanding = new HashSet<>();
     private String summary;
 
     public BreakCageAction() {
@@ -96,6 +104,7 @@ public final class BreakCageAction implements Action {
         if (nearest.isEmpty()) return ActionStatus.failed("no caged end crystal within " + (int) DragonView.CRYSTAL_RANGE + " blocks");
         crystal = nearest.get();
         crystalPos = crystal.blockPosition();
+        startTick = p.level().getGameTime();
         ground = p.blockPosition();
         side = Direction.getApproximateNearest(p.getX() - crystal.getX(), 0, p.getZ() - crystal.getZ());
         if (side.getAxis() == Direction.Axis.Y) side = Direction.NORTH;
@@ -192,7 +201,7 @@ public final class BreakCageAction implements Action {
     }
 
     private ActionStatus descend(BotContext ctx, AiPlayer p) {
-        if (p.blockPosition().getY() <= ground.getY() + 1) return outcome;
+        if (p.blockPosition().getY() <= ground.getY()) return outcome;
         stage = Stage.DOWN;
         if (shot != null) shot.cancel(p);
         shot = null;
@@ -200,16 +209,30 @@ public final class BreakCageAction implements Action {
         return ActionStatus.RUNNING;
     }
 
-    /** Back along the bridge to the pillar, then down it: break the block under the feet, drop one, repeat. */
+    /**
+     * Back along the bridge to the pillar, breaking the bridge behind it as it goes, then down the pillar: break the block
+     * under the feet, drop one, repeat.
+     */
     private ActionStatus down(BotContext ctx, AiPlayer p) {
         BlockBreaker breaker = ctx.breaker();
         if (breaker.busy()) {
             BlockBreaker.Status s = breaker.tick();
-            if (s.state() == BlockBreaker.Status.State.FAILED) return outcomeWith("could not climb down: " + s.reason());
+            if (s.state() == BlockBreaker.Status.State.FAILED) {
+                if (clearing == null) return outcomeWith("could not climb down: " + s.reason());
+                leftStanding.add(clearing); // best effort: the bridge block stays
+            }
+            if (s.state() != BlockBreaker.Status.State.RUNNING) clearing = null;
             return ActionStatus.RUNNING;
         }
-        if (p.blockPosition().getY() <= ground.getY() + 1) return outcome;
+        if (p.blockPosition().getY() <= ground.getY()) return outcome;
         if (!p.onGround()) return ActionStatus.RUNNING;
+        BlockPos own = ownBlockBehind(p);
+        if (own != null) {
+            ctx.navigator().stop();
+            clearing = own;
+            breaker.start(own);
+            return ActionStatus.RUNNING;
+        }
         if (!onPillar(p)) {
             // Over the bridge rather than the pillar: walk back to where the climb began.
             NavStatus nav = ctx.navigator().status();
@@ -226,6 +249,29 @@ public final class BreakCageAction implements Action {
         }
         breaker.start(below);
         return ActionStatus.RUNNING;
+    }
+
+    /**
+     * A block the bot placed during this action, off the pillar, within reach and farther from the pillar than the bot
+     * (so never the one it stands on or still has to walk over); the farthest first. Null when there is none.
+     */
+    private BlockPos ownBlockBehind(AiPlayer p) {
+        ServerLevel level = p.level();
+        BlockPos feet = p.blockPosition();
+        double mine = Math.hypot(p.getX() - (stand.getX() + 0.5), p.getZ() - (stand.getZ() + 0.5));
+        double reach = p.blockInteractionRange();
+        BlockPos best = null;
+        double bestAway = mine + 0.5;
+        for (BlockPos b : PlacedBlocks.of(level.getServer()).placedSince(level, p.getScoreboardName(), startTick)) {
+            if ((b.getX() == stand.getX() && b.getZ() == stand.getZ()) || b.equals(feet.below()) || leftStanding.contains(b)) continue;
+            if (p.getEyePosition().distanceTo(Vec3.atCenterOf(b)) > reach) continue;
+            double away = Math.hypot(b.getX() - stand.getX(), b.getZ() - stand.getZ());
+            if (away > bestAway) {
+                best = b;
+                bestAway = away;
+            }
+        }
+        return best;
     }
 
     private boolean onPillar(AiPlayer p) {

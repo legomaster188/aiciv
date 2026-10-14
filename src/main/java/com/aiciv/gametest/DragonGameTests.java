@@ -9,8 +9,10 @@ import com.aiciv.dragon.ShootCrystalsAction;
 import com.aiciv.llm.ToolCall;
 import com.aiciv.modules.ToolModules;
 import com.google.gson.JsonObject;
+import java.util.ArrayList;
 import java.util.List;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.particles.PowerParticleOption;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -154,6 +156,13 @@ public final class DragonGameTests {
             helper.assertTrue(crystal.isRemoved(), "the crystal is still there: " + events);
             helper.assertTrue(events.contains("finished: broke the cage and destroyed the crystal at"), "not finished: " + events);
             helper.assertTrue(p.getY() <= helper.absoluteVec(new Vec3(0, 3, 0)).y, "still up at y " + p.getY());
+            List<BlockPos> left = new ArrayList<>();
+            for (int x = -2; x <= 21; x++) {
+                for (int y = 1; y <= 14; y++) {
+                    for (int z = -2; z <= 15; z++) if (helper.getBlockState(new BlockPos(x, y, z)).is(Blocks.COBBLESTONE)) left.add(new BlockPos(x, y, z));
+                }
+            }
+            helper.assertTrue(left.isEmpty(), "the bot left its own blocks at " + left);
             GameTestKit.remove(s);
             release.run();
         });
