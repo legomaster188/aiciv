@@ -29,6 +29,7 @@ public final class AutopilotMemory {
     private String lastStarted;
     private final Map<String, Integer> failures = new HashMap<>();
     private final Map<String, Long> retryAt = new HashMap<>();
+    private final Map<String, Long> lastFailed = new HashMap<>();
     private final Map<String, Integer> finishes = new HashMap<>();
     /** Times a step finished three times without becoming done; unlike failures, a finish does not clear them. */
     private final Map<String, Integer> stalls = new HashMap<>();
@@ -95,6 +96,7 @@ public final class AutopilotMemory {
     /** Counts a failure; from the {@code maxRetries}-th on, the step cools down for {@link #backoffTicks} of the overflow. */
     public void fail(String goal, String step, long tick, int maxRetries) {
         String k = key(goal, step);
+        lastFailed.put(k, tick);
         int count = failures.merge(k, 1, Integer::sum);
         if (count >= maxRetries) retryAt.put(k, tick + backoffTicks(count - maxRetries + 1));
     }
@@ -121,6 +123,12 @@ public final class AutopilotMemory {
     /** When the step may be tried again; 0 when it never cooled down. */
     public long retryAt(String goal, String step) {
         return retryAt.getOrDefault(key(goal, step), 0L);
+    }
+
+    /** Whether the step failed at most {@code ticks} before {@code tick}. */
+    public boolean failedWithin(String goal, String step, long tick, long ticks) {
+        Long at = lastFailed.get(key(goal, step));
+        return at != null && at >= tick - ticks;
     }
 
     public int finishesWithoutDone(String goal, String step) {

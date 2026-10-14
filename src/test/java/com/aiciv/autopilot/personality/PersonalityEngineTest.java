@@ -169,20 +169,110 @@ class PersonalityEngineTest {
     @Test
     void atHomeAtNightItSleepsOnceThenWaits() {
         PersonalityEngine e = engine(new FakeGoal("build_base", 1.0));
-        PSit s = new PSit().night().homeAt(2, 64, 0);
+        PSit s = new PSit().night().homeAt(2, 64, 0).inv("white_bed", 1);
         Decision d = decide(e, s, new AutopilotMemory(), shipped("builder"));
         assertEquals("night", d.goal());
         assertEquals("sleep", d.step());
         assertEquals("sleep", d.calls().get(0).name());
 
-        PSit slept = new PSit().night().homeAt(2, 64, 0).done("night/sleep", 500);
+        PSit slept = new PSit().night().homeAt(2, 64, 0).inv("white_bed", 1).done("night/sleep", 500);
         Decision w = decide(e, slept, new AutopilotMemory(), shipped("builder"));
         assertEquals("night", w.goal());
         assertTrue(w.calls().isEmpty());
         assertEquals("night: staying home", w.thought());
 
-        PSit noSleep = new PSit().night().homeAt(2, 64, 0).actions("goto", "explore");
+        PSit noSleep = new PSit().night().homeAt(2, 64, 0).inv("white_bed", 1).actions("goto", "explore");
         assertTrue(decide(e, noSleep, new AutopilotMemory(), shipped("builder")).calls().isEmpty());
+    }
+
+    @Test
+    void withoutABedItStaysHomeQuietly() {
+        PersonalityEngine e = engine(new FakeGoal("build_base", 1.0));
+        Decision d = decide(e, new PSit().night().homeAt(2, 64, 0), new AutopilotMemory(), shipped("builder"));
+        assertEquals("stay", d.step());
+        assertTrue(d.calls().isEmpty());
+        Decision seen = decide(e, new PSit().night().homeAt(2, 64, 0).block("red_bed", 6), new AutopilotMemory(), shipped("builder"));
+        assertEquals("sleep", seen.step(), "a bed in sight is enough");
+    }
+
+    @Test
+    void aFailedSleepCountsForTheNight() {
+        PersonalityEngine e = engine(new FakeGoal("build_base", 1.0));
+        AutopilotMemory mem = new AutopilotMemory();
+        PSit s = new PSit().night().homeAt(2, 64, 0).inv("white_bed", 1).tick(5000);
+        assertEquals("sleep", decide(e, s, mem, shipped("builder")).step());
+        mem.stepStarted("night", "sleep", null, 5000);
+        mem.outcome("failed: you can only sleep at night or in a thunderstorm", 5001, 5);
+
+        Decision after = decide(e, s.tick(5011), mem, shipped("builder"));
+        assertEquals("stay", after.step());
+        assertTrue(after.calls().isEmpty());
+        assertTrue(decide(e, s.tick(5001 + 11999), mem, shipped("builder")).calls().isEmpty());
+        assertEquals("sleep", decide(e, s.tick(5001 + 12001), mem, shipped("builder")).step(), "the next night it tries again");
+    }
+
+    @Test
+    void goingHomeThatKeepsFailingCoolsDown() {
+        PersonalityEngine e = engine(new FakeGoal("build_base", 1.0));
+        Personality builder = shipped("builder");
+        int retries = Behaviour.tuning(builder.traits()).maxRetries();
+        AutopilotMemory mem = new AutopilotMemory();
+        PSit s = new PSit().night().homeAt(40, 64, 0).tick(5000);
+        for (int i = 0; i < retries; i++) {
+            assertEquals("go_home", decide(e, s, mem, builder).step());
+            mem.stepStarted("night", "go_home", null, 5000 + i);
+            mem.outcome("failed: no path", 5000 + i, retries);
+        }
+        Decision d = decide(e, s.tick(5010), mem, builder);
+        assertEquals("stay", d.step());
+        assertTrue(d.calls().isEmpty());
+        assertEquals("go_home", decide(e, s.tick(5000 + retries + 600), mem, builder).step(), "tried again after the backoff");
+    }
+
+    @Test
+    void goingHomeThatFinishesShortOfHomeCoolsDown() {
+        PersonalityEngine e = engine(new FakeGoal("build_base", 1.0));
+        Personality impatient = custom(new Traits(0, 0, 0, 0.5, -1), Map.of("build_base", 1.0)); // maxRetries 1, home at night
+        AutopilotMemory mem = new AutopilotMemory();
+        PSit s = new PSit().night().homeAt(40, 64, 0).tick(5000);
+        for (int i = 0; i < 3; i++) {
+            assertEquals("go_home", decide(e, s, mem, impatient).step());
+            mem.stepStarted("night", "go_home", null, 5000 + i);
+            mem.outcome("finished: goTo", 5000 + i, 1);
+        }
+        Decision d = decide(e, s.tick(5010), mem, impatient);
+        assertEquals("stay", d.step(), "three walks ending short of home count as a failure");
+        assertTrue(d.calls().isEmpty());
+    }
+
+    @Test
+    void aFailingRetreatCoolsDown() {
+        PersonalityEngine e = engine(new FakeGoal("get_iron_tools", 1.0));
+        Personality cautious = custom(new Traits(-0.5, 0, 0, 0, 0), Map.of("get_iron_tools", 1.0));
+        int retries = Behaviour.tuning(cautious.traits()).maxRetries();
+        AutopilotMemory mem = new AutopilotMemory();
+        PSit s = new PSit().health(12).hostile("zombie", 6, "N").tick(5000);
+        for (int i = 0; i < retries; i++) {
+            assertEquals("retreat", decide(e, s, mem, cautious).step());
+            mem.stepStarted("survive", "retreat", null, 5000 + i);
+            mem.outcome("failed: explore: blocked", 5000 + i, retries);
+        }
+        assertEquals("get_iron_tools", decide(e, s.tick(5010), mem, cautious).goal());
+    }
+
+    @Test
+    void aFailingWanderCoolsDown() {
+        PersonalityEngine e = engine(FakeGoal.blocked("get_iron_tools", 1.0));
+        Personality p = custom(Traits.NEUTRAL, Map.of("get_iron_tools", 1.0));
+        AutopilotMemory mem = new AutopilotMemory();
+        for (int i = 0; i < 3; i++) {
+            Decision d = e.decide(new PSit().tick(5000 + i).build(), mem, p, "IDLE", 5000 + i);
+            assertEquals("wander", d.step());
+            mem.stepStarted("explore", "wander", null, 5000 + i);
+            mem.outcome("failed: explore: stuck", 5000 + i, 3);
+        }
+        Decision d = e.decide(new PSit().tick(5010).build(), mem, p, "IDLE", 5010);
+        assertTrue(d.calls().isEmpty(), d.thought());
     }
 
     @Test

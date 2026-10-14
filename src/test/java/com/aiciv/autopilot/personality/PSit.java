@@ -20,6 +20,7 @@ final class PSit {
     String pinned;
     final Map<String, Integer> inventory = new HashMap<>();
     final List<Sighting> mobs = new ArrayList<>();
+    final List<Sighting> blocks = new ArrayList<>();
     final List<String> hostiles = new ArrayList<>();
     final List<String> structures = new ArrayList<>();
     final Set<String> actions = new HashSet<>(Set.of("goto", "explore", "sleep"));
@@ -36,6 +37,7 @@ final class PSit {
         hostiles.add(label);
         return this;
     }
+    PSit block(String label, int distance) { blocks.add(new Sighting(label, 1, distance, "N")); return this; }
     PSit homeAt(int hx, int hy, int hz) {
         structures.add(Situation.homeName(name) + " by Ada at " + hx + " " + hy + " " + hz);
         return this;
@@ -45,7 +47,7 @@ final class PSit {
 
     Situation build() {
         return new Situation(name, "overworld", x, y, z, health, food, night, tick, inventory, Set.of(), null, 30,
-                List.of(), List.of(), mobs, hostiles, List.of(), Set.of(), structures, actions, null, false,
+                blocks, List.of(), mobs, hostiles, List.of(), Set.of(), structures, actions, null, false,
                 Set.of(), lastDone, List.of(), Tuning.DEFAULT, pinned);
     }
 

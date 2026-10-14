@@ -53,7 +53,11 @@ public final class PersonalityEngine implements AutopilotEngine {
         List<Goal> all = goals.get();
 
         Optional<Sighting> hostile = s.nearestHostile(HOSTILE_RANGE);
-        if (hostile.isPresent() && shouldRetreat(s, p, t)) return retreat(s, hostile.get());
+        // retreat, the night routine and wandering bypass the planner, so they honour its cooldowns themselves:
+        // without that a failing goTo/explore/sleep would be retried every half second
+        if (hostile.isPresent() && shouldRetreat(s, p, t) && !mem.coolingDown("survive", "retreat", tick)) {
+            return retreat(s, hostile.get());
+        }
 
         if (s.food() <= 6 && s.foodItems() == 0) {
             for (Goal g : all) {
@@ -66,7 +70,7 @@ public final class PersonalityEngine implements AutopilotEngine {
 
         if (s.night() && t.homeAtNight() && hostile.isEmpty()) {
             Optional<int[]> home = s.home();
-            if (home.isPresent()) return night(s, home.get());
+            if (home.isPresent()) return night(s, mem, t, home.get(), tick);
         }
 
         List<ChatCue> cues = new ArrayList<>();
@@ -84,7 +88,7 @@ public final class PersonalityEngine implements AutopilotEngine {
             }
         }
 
-        if (s.hasAction("explore")) {
+        if (s.hasAction("explore") && !mem.coolingDown("explore", "wander", tick)) {
             String direction = COMPASS[(int) ((tick / 2400) % 4)];
             return withCues(new Decision(List.of(Calls.of("explore", "direction", direction, "distance", t.exploreDistance())),
                     "nothing better to do: wander " + direction, "explore", "wander", null, List.of(), false), cues);
@@ -111,11 +115,25 @@ public final class PersonalityEngine implements AutopilotEngine {
                 null, List.of(), false);
     }
 
-    private static Decision night(Situation s, int[] home) {
+    /**
+     * Home, then bed, then staying put. A step that failed is not tried again while it cools down; a failed sleep counts
+     * as this night's sleep (dusk, rain, monsters: it would fail again), and with no bed carried or in sight there is
+     * nothing to sleep in.
+     */
+    private static Decision night(Situation s, AutopilotMemory mem, Tuning t, int[] home, long tick) {
         if (s.distanceTo(home) > HOME_RADIUS) {
-            return new Decision(List.of(goTo(home)), "night: go home", "night", "go_home", null, List.of(), false);
+            if (mem.finishesWithoutDone("night", "go_home") >= 3) { // the walk keeps ending short of home
+                mem.resetFinishes("night", "go_home");
+                mem.stall("night", "go_home", tick, t.maxRetries());
+            }
+            if (!mem.coolingDown("night", "go_home", tick)) {
+                return new Decision(List.of(goTo(home)), "night: go home", "night", "go_home", null, List.of(), false);
+            }
+            return new Decision(List.of(), "night: can't get home, staying put", "night", "stay", null, List.of(), false);
         }
-        if (s.hasAction("sleep") && !s.doneWithin("night/sleep", SLEEP_GAP_TICKS)) {
+        mem.resetFinishes("night", "go_home");
+        if (s.hasAction("sleep") && s.bedKnown() && !s.doneWithin("night/sleep", SLEEP_GAP_TICKS)
+                && !mem.failedWithin("night", "sleep", tick, SLEEP_GAP_TICKS) && !mem.coolingDown("night", "sleep", tick)) {
             return new Decision(List.of(Calls.of("sleep")), "night: sleep at home", "night", "sleep", null, List.of(), false);
         }
         return new Decision(List.of(), "night: staying home", "night", "stay", null, List.of(), false);

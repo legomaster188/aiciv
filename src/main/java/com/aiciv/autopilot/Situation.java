@@ -170,6 +170,13 @@ public record Situation(String name, String dimension, int x, int y, int z, int 
         return false;
     }
 
+    /** A bed carried or seen within 16 blocks: what the sleep action can use. */
+    public boolean bedKnown() {
+        for (Map.Entry<String, Integer> e : inventory.entrySet()) if (e.getKey().endsWith("_bed") && e.getValue() > 0) return true;
+        for (Sighting s : blocks) if (s.label().endsWith("_bed") && s.distance() <= 16) return true;
+        return false;
+    }
+
     public boolean tableNear() {
         return sees("crafting_table", 4) || count("crafting_table") > 0;
     }

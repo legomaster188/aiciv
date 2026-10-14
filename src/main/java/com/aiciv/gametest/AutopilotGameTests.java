@@ -12,6 +12,7 @@ import com.aiciv.building.StructureRegistry;
 import com.aiciv.config.AiCivConfig;
 import com.aiciv.llm.LlmService;
 import com.aiciv.llm.ScriptedBackend;
+import com.aiciv.nav.Pos;
 import com.aiciv.panel.PanelSnapshot;
 import com.aiciv.world.InventoryOps;
 import com.google.gson.JsonObject;
@@ -269,6 +270,41 @@ public final class AutopilotGameTests {
             assertQuiet(helper, s, "TestApGuard");
             restore.run();
             GameTestKit.remove(s);
+        });
+    }
+
+    /** Real autopilot timing (5 s idle wake, 500 ms after an action) on the tick clock, so decision counts mean something. */
+    private static GameTestKit.AutoSpawned spawnWithDefaultTiming(GameTestHelper helper, String name, double x, double z, String model) {
+        String config = """
+                {"providers": {"scripted": {"type": "scripted", "script": "unused.json"}},
+                 "models": {"scripted": {"provider": "scripted", "model": "script"}},
+                 "defaultModel": "scripted", "decisionGapSeconds": 0}""";
+        return GameTestKit.spawnAutopilot(helper, name, x, z, model, config, Map.of("scripted", new ScriptedBackend(List.of())),
+                GameTestKit.tickClock(helper.getLevel().getServer()));
+    }
+
+    /** At home at night with no bed: the builder stays put, it does not ask to sleep every half second. */
+    @GameTest(maxTicks = 700, environment = "aiciv:night")
+    public void nightWithoutBedDoesNotSpin(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        MinecraftServer server = helper.getLevel().getServer();
+        String home = "testapnight_home";
+        StructureRegistry.of(server).store().remove(home);
+        BlockPos at = helper.absolutePos(new BlockPos(3, 1, 3));
+        Pos p = new Pos(at.getX(), at.getY(), at.getZ());
+        StructureRegistry.of(server).store().add(new Structure(home, "TestApNight",
+                helper.getLevel().dimension().identifier().toString(), p, p, p, "hut", 0));
+        GameTestKit.AutoSpawned s = spawnWithDefaultTiming(helper, "TestApNight", 3.5, 3.5, "autopilot-builder");
+        s.bot().player.getInventory().setItem(0, new ItemStack(Items.BREAD, 8));
+        helper.runAfterDelay(620, () -> {
+            List<JsonObject> decisions = decisions(s.dir(), "TestApNight");
+            StructureRegistry.of(server).store().remove(home);
+            GameTestKit.remove(s);
+            helper.assertTrue(helper.getLevel().isDarkOutside(), "the night environment did not make it dark");
+            helper.assertTrue(decisions.stream().anyMatch(d -> "night".equals(str(d, "goal"))), "no night decision: " + decisions);
+            helper.assertTrue(decisions.stream().noneMatch(d -> "sleep".equals(str(d, "step"))), "tried to sleep without a bed: " + decisions);
+            helper.assertTrue(decisions.size() <= 10, decisions.size() + " decisions in 620 ticks: " + decisions);
+            helper.succeed();
         });
     }
 
