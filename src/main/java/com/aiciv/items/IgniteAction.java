@@ -25,6 +25,10 @@ import net.minecraft.world.phys.Vec3;
 /** Lights TNT, a campfire or a candle with flint and steel or a fire charge, or sets fire on top of any other block. */
 public final class IgniteAction extends ReachAction {
     private static final double SAFE_DISTANCE = 9.0;
+    /** No TNT is primed with a block someone else placed this close: the blast would destroy it. */
+    static final int TNT_KEEP_AWAY = 5;
+    /** No fire is set with a flammable block someone else placed this close: it would spread to it. */
+    static final int FIRE_KEEP_AWAY = 3;
     private static final int FLEE_TICKS = 100;
 
     private enum Kind { TNT, CAMPFIRE, CANDLE, OTHER }
@@ -61,9 +65,24 @@ public final class IgniteAction extends ReachAction {
         } else {
             kind = Kind.OTHER;
         }
-        if (kind != Kind.TNT && kind != Kind.CAMPFIRE) {
+        if (kind != Kind.CAMPFIRE) {
             String owner = owner(p, level);
-            if (owner != null) return "that block belongs to " + owner;
+            if (owner != null) return (kind == Kind.TNT ? "that tnt belongs to " : "that block belongs to ") + owner;
+        }
+        PlacedBlocks placed = PlacedBlocks.of(level.getServer());
+        String me = p.getScoreboardName();
+        if (kind == Kind.TNT) {
+            Optional<BlockPos> near = placed.placedByOtherNear(level, target, TNT_KEEP_AWAY, me, st -> true);
+            if (near.isPresent()) {
+                return "won't prime the tnt at " + coords(target) + ": the blast would hit " + placed.describe(level, near.get())
+                        + " within " + TNT_KEEP_AWAY + " blocks";
+            }
+        } else if (kind == Kind.OTHER) {
+            Optional<BlockPos> near = placed.placedByOtherNear(level, target.above(), FIRE_KEEP_AWAY, me, BlockState::ignitedByLava);
+            if (near.isPresent()) {
+                return "won't set fire at " + coords(target) + ": it could spread to " + placed.describe(level, near.get())
+                        + " within " + FIRE_KEEP_AWAY + " blocks";
+            }
         }
         if (kind == Kind.OTHER && !level.getBlockState(target.above()).isAir()) return "no room for fire above " + coords(target);
         return null;

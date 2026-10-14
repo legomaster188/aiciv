@@ -15,6 +15,7 @@ import com.aiciv.modules.ToolModules;
 import com.aiciv.perception.Perceiver;
 import com.aiciv.perception.SnapshotFormatter;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
 import com.google.gson.JsonParser;
 import java.util.List;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
@@ -108,6 +109,96 @@ public final class ItemsGameTests {
             helper.assertTrue(events.contains("lit the campfire") && events.contains("set fire on top of"), "unexpected summary: " + events);
             helper.setBlock(4, 2, 5, Blocks.AIR);
             GameTestKit.remove(s);
+        });
+    }
+
+    /** Records the block at relative {@code at} as placed by Steve. */
+    private static void steves(GameTestHelper helper, BlockPos at) {
+        PlacedBlocks.of(helper.getLevel().getServer()).record(helper.getLevel(), helper.absolutePos(at), "Steve");
+    }
+
+    /** Runs one action and waits for it to fail with {@code reason}, then checks {@code after}. */
+    private static void refuses(GameTestHelper helper, GameTestKit.Spawned s, Action action, String reason, Runnable after) {
+        s.bot().executor.replace(List.of(action), s.bot().context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(s.bot());
+            helper.assertTrue(events.contains("failed:") && events.contains(reason), "not refused with '" + reason + "': " + events);
+            after.run();
+            GameTestKit.remove(s);
+        });
+    }
+
+    @GameTest(maxTicks = 200)
+    public void igniteRefusesSomeoneElsesTnt(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        BlockPos tnt = new BlockPos(4, 1, 4);
+        helper.setBlock(tnt, Blocks.TNT);
+        steves(helper, tnt);
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestItemTntOwn", 1.5, 4.5);
+        give(s, new ItemStack(Items.FLINT_AND_STEEL));
+        BlockPos t = helper.absolutePos(tnt);
+        refuses(helper, s, new IgniteAction(t.getX(), t.getY(), t.getZ()), "that tnt belongs to Steve",
+                () -> helper.assertTrue(helper.getBlockState(tnt).is(Blocks.TNT), "the tnt was lit"));
+    }
+
+    @GameTest(maxTicks = 200)
+    public void igniteRefusesTntNearSomeoneElsesBlocks(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        BlockPos tnt = new BlockPos(4, 1, 2);
+        helper.setBlock(tnt, Blocks.TNT);
+        helper.setBlock(4, 1, 6, Blocks.COBBLESTONE);
+        steves(helper, new BlockPos(4, 1, 6));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestItemTntNear", 1.5, 2.5);
+        give(s, new ItemStack(Items.FLINT_AND_STEEL));
+        BlockPos t = helper.absolutePos(tnt);
+        refuses(helper, s, new IgniteAction(t.getX(), t.getY(), t.getZ()), "won't prime the tnt",
+                () -> helper.assertTrue(helper.getBlockState(tnt).is(Blocks.TNT), "the tnt was lit"));
+    }
+
+    @GameTest(maxTicks = 200)
+    public void igniteRefusesFireNearSomeoneElsesPlanks(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(4, 1, 4, Blocks.NETHERRACK);
+        helper.setBlock(4, 2, 6, Blocks.OAK_PLANKS);
+        helper.setBlock(4, 1, 6, Blocks.OAK_PLANKS);
+        steves(helper, new BlockPos(4, 2, 6));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestItemFireNear", 1.5, 4.5);
+        give(s, new ItemStack(Items.FLINT_AND_STEEL));
+        BlockPos n = helper.absolutePos(new BlockPos(4, 1, 4));
+        refuses(helper, s, new IgniteAction(n.getX(), n.getY(), n.getZ()), "won't set fire",
+                () -> helper.assertTrue(helper.getBlockState(new BlockPos(4, 2, 4)).isAir(), "a fire was set"));
+    }
+
+    /** Someone else's stone does not burn, so fire beside it is allowed. */
+    @GameTest(maxTicks = 300)
+    public void igniteSetsFireBesideSomeoneElsesStone(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(4, 1, 4, Blocks.NETHERRACK);
+        helper.setBlock(4, 1, 6, Blocks.COBBLESTONE);
+        steves(helper, new BlockPos(4, 1, 6));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestItemFireOk", 1.5, 4.5);
+        give(s, new ItemStack(Items.FLINT_AND_STEEL));
+        BlockPos n = helper.absolutePos(new BlockPos(4, 1, 4));
+        s.bot().executor.replace(List.of(new IgniteAction(n.getX(), n.getY(), n.getZ())), s.bot().context);
+        helper.succeedWhen(() -> {
+            String events = GameTestKit.events(s.bot());
+            helper.assertTrue(events.contains("finished: set fire on top of"), "no fire: " + events);
+            helper.setBlock(4, 2, 4, Blocks.AIR);
+            GameTestKit.remove(s);
+        });
+    }
+
+    @GameTest(maxTicks = 200)
+    public void lavaRefusedNearSomeoneElsesBlock(GameTestHelper helper) {
+        GameTestKit.floor(helper, 8, Blocks.STONE);
+        helper.setBlock(5, 1, 4, Blocks.COBBLESTONE);
+        steves(helper, new BlockPos(5, 1, 4));
+        GameTestKit.Spawned s = GameTestKit.spawn(helper, "TestItemLavaNear", 1.5, 4.5);
+        give(s, new ItemStack(Items.LAVA_BUCKET));
+        BlockPos cell = helper.absolutePos(new BlockPos(4, 1, 2));
+        refuses(helper, s, new EmptyBucketAction(cell.getX(), cell.getY(), cell.getZ()), "won't pour lava", () -> {
+            helper.assertTrue(helper.getLevel().getFluidState(cell).isEmpty(), "lava was poured");
+            helper.assertTrue(InventoryOps.has(s.bot().player, Items.LAVA_BUCKET, 1), "the bucket was emptied");
         });
     }
 

@@ -6,7 +6,10 @@ import com.aiciv.bot.AiPlayer;
 import com.aiciv.world.BlockUse;
 import com.aiciv.world.Buckets;
 import com.aiciv.world.InventoryOps;
+import com.aiciv.world.PlacedBlocks;
+import java.util.Optional;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 
@@ -31,6 +34,15 @@ public final class EmptyBucketAction extends ReachAction {
         if (!water && !lava) return "needs a water_bucket or lava_bucket";
         bucket = water ? Items.WATER_BUCKET : Items.LAVA_BUCKET;
         target = new BlockPos(x, y, z);
+        if (bucket == Items.LAVA_BUCKET) {
+            ServerLevel level = p.level();
+            PlacedBlocks placed = PlacedBlocks.of(level.getServer());
+            Optional<BlockPos> near = placed.placedByOtherNear(level, target, PlacedBlocks.LAVA_KEEP_AWAY, p.getScoreboardName(), s -> true);
+            if (near.isPresent()) {
+                return "won't pour lava at " + coords(target) + ": " + placed.describe(level, near.get()) + " is within "
+                        + PlacedBlocks.LAVA_KEEP_AWAY + " blocks";
+            }
+        }
         return null;
     }
 
