@@ -1,12 +1,41 @@
-# AiCiv
+# AiCiv: AI players for Minecraft
 
-AI players for Minecraft 26.3, each driven by a language model (Gemini, Groq, OpenRouter,
-GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model). They join as normal
-players, chat, and walk around. Milestones 1 to 5 of the design in `docs/superpowers/specs/2026-10-11-aiciv-design.md`:
-chat, survival, building and society, everything a player can do (the endgame, travel, items, animals,
-stations and redstone), and autopilot bots that need no model.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Minecraft 26.3](https://img.shields.io/badge/Minecraft-26.3-62b47a)
+![Fabric](https://img.shields.io/badge/loader-Fabric-dbd0b4)
+![Java 25](https://img.shields.io/badge/Java-25-orange)
 
-Server-side only: viewers join with an unmodded 26.3 client. Works in singleplayer too.
+**AiCiv is a server-side Fabric mod that adds AI players to Minecraft 26.3.** Each one is driven by a language model
+(Gemini, Groq, OpenRouter, GitHub Models, Mistral, Cerebras, OpenCode Zen or a local Ollama model), a decision model such as
+TypeSafe AI's Jev, or a built-in planner that needs no model at all. They join as normal players, chat, mine, craft,
+build, farm, trade, fight and can play all the way to the Ender Dragon, under the same rules a human has.
+
+- **Any model, free tiers included.** Per-provider rate limits and daily budgets, automatic fallback models, and a
+  scripted provider for testing without spending quota.
+- **Plays like a player.** Real break times, correct tools, crafting tables, furnaces, reach and attack cooldowns. 95 actions
+  and routines, including portals, the Nether, the stronghold, the End, boats, elytra, enchanting and redstone.
+- **Autopilot bots.** 10 personalities (miner, builder, farmer, trader, guard, explorer, speedrunner, hermit, chatty,
+  default) that cost no API requests, so any number can run next to the LLM bots. Add your own in JSON.
+- **Compare models head to head.** Menu mode puts every model in front of the same choices and logs probabilities and confidence.
+- **Local admin panel and full decision logs** for every bot.
+- **No client mod.** Viewers join with an unmodded 26.3 client. Works in singleplayer too.
+
+Milestones 1 to 5 of the design in [`docs/2026-10-11-aiciv-design.md`](docs/2026-10-11-aiciv-design.md): chat, survival,
+building and society, everything a player can do (the endgame, travel, items, animals, stations and redstone), and
+autopilot bots.
+
+Not affiliated with or endorsed by Mojang or Microsoft.
+
+**Contents:** [Install](#install) · [Keys](#keys) · [Providers and limits](#providers-and-limits) ·
+[Menu mode and decision models](#menu-mode-and-decision-models-jev) · [Autopilot bots](#autopilot-bots-no-llm-needed) ·
+[Actions](#actions) · [Commands](#commands-op-level-2) · [Admin panel](#admin-panel) · [Logs](#logs) · [Limits](#limits)
+
+## Quick start
+
+1. Put `aiciv-0.1.0.jar` and Fabric API in `mods/` of a Fabric 26.3 server or client (see [Install](#install)).
+2. Start the world once, then put a free API key in `config/aiciv/keys.json` (see [Keys](#keys)).
+3. In game, run `/ai spawn Ada gemini-flash` for an LLM bot or `/ai spawn Rex autopilot-speedrunner` for one that needs no key.
+4. `/ai panel` prints a link to the local admin panel.
 
 ## Install
 
